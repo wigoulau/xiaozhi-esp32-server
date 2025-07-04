@@ -44,6 +44,8 @@ xiaozhi-server
 在页面的右侧找到名称为`RAW`按钮，在`RAW`按钮的旁边，找到下载的图标，点击下载按钮，下载`docker-compose_all.yml`文件。 把文件下载到你的
 `xiaozhi-server`中。
 
+或者直接执行 `wget https://raw.githubusercontent.com/xinnan-tech/xiaozhi-esp32-server/refs/heads/main/main/xiaozhi-server/docker-compose_all.yml` 下载。
+
 下载完后，回到本教程继续往下。
 
 ##### 1.3.2 下载 config_from_api.yaml
@@ -52,6 +54,8 @@ xiaozhi-server
 
 在页面的右侧找到名称为`RAW`按钮，在`RAW`按钮的旁边，找到下载的图标，点击下载按钮，下载`config_from_api.yaml`文件。 把文件下载到你的
 `xiaozhi-server`下面的`data`文件夹中，然后把`config_from_api.yaml`文件重命名为`.config.yaml`。
+
+或者直接执行 `wget https://raw.githubusercontent.com/xinnan-tech/xiaozhi-esp32-server/refs/heads/main/main/xiaozhi-server/config_from_api.yaml` 下载保存。
 
 下载完配置文件后，我们确认一下整个`xiaozhi-server`里面的文件如下所示：
 
@@ -67,57 +71,37 @@ xiaozhi-server
 
 如果你的文件目录结构也是上面的，就继续往下。如果不是，你就再仔细看看是不是漏操作了什么。
 
-## 2. 安装Mysql和Redis
+## 2. 备份数据
 
-### 2.1 安装Mysql数据库
-如果本机已经安装了MySQL，可以直接在数据库中创建名为`xiaozhi_esp32_server`的数据库。
+如果你之前已经成功运行智控台，如果上面保存有你的密钥信息，请先从智控台上拷贝重要数据下来。因为升级过程中，有可能会覆盖原来的数据。
 
-```sql
-CREATE DATABASE xiaozhi_esp32_server CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-```
-
-如果还没有MySQL，你可以通过docker安装mysql
-
-```
-docker run --name xiaozhi-esp32-server-db -e MYSQL_ROOT_PASSWORD=123456 -p 3306:3306 -e MYSQL_DATABASE=xiaozhi_esp32_server -e MYSQL_INITDB_ARGS="--character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci" -d mysql:latest
-```
-
-### 2.2 安装Redis
-
-如果还没有Redis，你可以通过docker安装redis
-
-```
-docker run --name xiaozhi-esp32-server-redis -d -p 6379:6379 redis
-```
-
-## 3. 配置docker-compose_all.yml文件文件
-
-在`xiaozhi-server`目录，打开docker-compose_all.yml，
-
-1、修改`SPRING_DATASOURCE_DRUID_URL`里，把`192.168.1.25`修改成部署mysql的电脑局域网ip，如果是你本地，你要查看一下你本机的局域网ip是什么
-
-2、修改`SPRING_DATA_REDIS_HOST`里，把`192.168.1.25`修改成部署redis的电脑局域网ip，如果是你本地，你要查看一下你本机的局域网ip是什么
-
-3、确认一下mysql的用户名`SPRING_DATASOURCE_DRUID_USERNAME`和密码`SPRING_DATASOURCE_DRUID_PASSWORD`
-
-## 4. 运行程序
-
-确认mysql和redis是否运行正常，输入
-```
-docker ps
-```
-如果你能看到`xiaozhi-esp32-server-redis`和`xiaozhi-esp32-server-db`信息，就可以继续往下，如果看不到，说明你的`mysql`和`redis`没有安装或没有启动。需要继续回到上面的教程，看看哪一步漏了。
-
-```
-CONTAINER ID             IMAGE   COMMAND   CREATED  TATUS   PORTS               NAMES
-xxx       redis          "xx"   xxx   xxx   0.0.0.0:6379->6379/tcp              xiaozhi-esp32-server-redis
-xxx       mysql:latest   "xx"   xxx   xxx   0.0.0.0:3306->3306/tcp, 33060/tcp   xiaozhi-esp32-server-db
-```
-
+## 3. 清除历史版本镜像和容器
 接下来打开命令行工具，使用`终端`或`命令行`工具 进入到你的`xiaozhi-server`，执行以下命令
 
 ```
-docker-compose -f docker-compose_all.yml up -d
+docker compose -f docker-compose_all.yml down
+
+docker stop xiaozhi-esp32-server
+docker rm xiaozhi-esp32-server
+
+docker stop xiaozhi-esp32-server-web
+docker rm xiaozhi-esp32-server-web
+
+docker stop xiaozhi-esp32-server-db
+docker rm xiaozhi-esp32-server-db
+
+docker stop xiaozhi-esp32-server-redis
+docker rm xiaozhi-esp32-server-redis
+
+docker rmi ghcr.nju.edu.cn/xinnan-tech/xiaozhi-esp32-server:server_latest
+docker rmi ghcr.nju.edu.cn/xinnan-tech/xiaozhi-esp32-server:web_latest
+```
+
+## 4. 运行程序
+执行以下命令启动新版本容器
+
+```
+docker compose -f docker-compose_all.yml up -d
 ```
 
 执行完后，再执行以下命令，查看日志信息。
@@ -138,11 +122,11 @@ http://localhost:8002/xiaozhi/doc.html
 
 这时，你需要使用浏览器，打开`智控台`，链接：http://127.0.0.1:8002 ，注册第一个用户。第一个用户即是超级管理员，以后的用户都是普通用户。普通用户只能绑定设备和配置智能体;超级管理员可以进行模型管理、用户管理、参数配置等功能。
 
-接下来要做两件重要的事情：
+接下来要做三件重要的事情：
 
 ### 第一件重要的事情
 
-使用超级管理员账号，登录系统，在顶部菜单找到`参数管理`，找到列表中第三条数据，参数编码是`server.secret`，复制它到`参数值`。
+使用超级管理员账号，登录智控台，在顶部菜单找到`参数管理`，找到列表中第一条数据，参数编码是`server.secret`，复制它到`参数值`。
 
 `server.secret`需要说明一下，这个`参数值`很重要，作用是让我们的`Server`端连接`manager-api`。`server.secret`是每次从零部署manager模块时，会自动随机生成的密钥。
 
@@ -150,17 +134,21 @@ http://localhost:8002/xiaozhi/doc.html
 
 ```
 manager-api:
-  url: http://127.0.0.1:8002/xiaozhi
+  url:  http://127.0.0.1:8002/xiaozhi
   secret: 你的server.secret值
 ```
 1、把你刚才从`智控台`复制过来的`server.secret`的`参数值`复制到`.config.yaml`文件里的`secret`里。
 
-2、把`url`里的`127.0.0.1`改成你电脑局域网内的ip
+2、因为你是docker部署，把`url`改成下面的`http://xiaozhi-esp32-server-web:8002/xiaozhi`
+
+3、因为你是docker部署，把`url`改成下面的`http://xiaozhi-esp32-server-web:8002/xiaozhi`
+
+4、因为你是docker部署，把`url`改成下面的`http://xiaozhi-esp32-server-web:8002/xiaozhi`
 
 类似这样的效果
 ```
 manager-api:
-  url: http://192.168.1.25:8002/xiaozhi
+  url: http://xiaozhi-esp32-server-web:8002/xiaozhi
   secret: 12345678-xxxx-xxxx-xxxx-123456789000
 ```
 
@@ -168,7 +156,7 @@ manager-api:
 
 ### 第二件重要的事情
 
-使用超级管理员账号，登录系统，在顶部菜单找到`模型配置`，然后在左侧栏点击`大语言模型`，找到第一条数据`智谱AI`，点击`修改`按钮，
+使用超级管理员账号，登录智控台，在顶部菜单找到`模型配置`，然后在左侧栏点击`大语言模型`，找到第一条数据`智谱AI`，点击`修改`按钮，
 弹出修改框后，将你注册到的`智谱AI`的密钥填写到`API密钥`中。然后点击保存。
 
 ## 5.重启xiaozhi-esp32-server
@@ -181,7 +169,7 @@ docker logs -f xiaozhi-esp32-server
 如果你能看到，类似以下日志,则是Server启动成功的标志。
 
 ```
-25-02-23 12:01:09[core.websocket_server] - INFO - Server is running at ws://xxx.xx.xx.xx:8000/xiaozhi/v1/
+25-02-23 12:01:09[core.websocket_server] - INFO - Websocket地址是      ws://xxx.xx.xx.xx:8000/xiaozhi/v1/
 25-02-23 12:01:09[core.websocket_server] - INFO - =======上面的地址是websocket协议地址，请勿用浏览器访问=======
 25-02-23 12:01:09[core.websocket_server] - INFO - 如想测试websocket请用谷歌浏览器打开test目录下的test_page.html
 25-02-23 12:01:09[core.websocket_server] - INFO - =======================================================
@@ -199,26 +187,18 @@ Websocket接口：
 ws://你电脑局域网的ip:8000/xiaozhi/v1/
 ```
 
-接下来，你就可以开始 [编译esp32固件](firmware-build.md)了。
+### 第三件重要的事情
 
+使用超级管理员账号，登录智控台，在顶部菜单找到`参数管理`，找到参数编码是`server.websocket`，输入你的`Websocket接口`。
 
-## 6. 版本升级操作
+使用超级管理员账号，登录智控台，在顶部菜单找到`参数管理`，找到数编码是`server.ota`，输入你的`OTA接口`。
 
-如果后期想升级版本，先备份你的模型密钥。
+接下来，你就可以开始操作你的esp32设备了，你可以`自行编译esp32固件`也可以配置使用`虾哥编译好的1.6.1以上版本的固件`。两个任选一个
 
-进入`xiaozhi-server`目录
+1、 [编译自己的esp32固件](firmware-build.md)了。
 
-5.1、执行以下命令
+2、 [基于虾哥编译好的固件配置自定义服务器](firmware-setting.md)了。
 
-```
-docker-compose down
-docker rmi ghcr.nju.edu.cn/xinnan-tech/xiaozhi-esp32-server:server_latest
-docker rmi ghcr.nju.edu.cn/xinnan-tech/xiaozhi-esp32-server:web_latest
-```
-
-5.2、删掉`docker-compose_all.yaml`文件
-
-5.3、重新按1.1开始部署
 
 # 方式二：本地源码运行全模块
 
@@ -233,7 +213,7 @@ CREATE DATABASE xiaozhi_esp32_server CHARACTER SET utf8mb4 COLLATE utf8mb4_unico
 如果还没有MySQL，你可以通过docker安装mysql
 
 ```
-docker run --name xiaozhi-esp32-server-db -e MYSQL_ROOT_PASSWORD=123456 -p 3306:3306 -e MYSQL_DATABASE=xiaozhi_esp32_server -e MYSQL_INITDB_ARGS="--character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci" -d mysql:latest
+docker run --name xiaozhi-esp32-server-db -e MYSQL_ROOT_PASSWORD=123456 -p 3306:3306 -e MYSQL_DATABASE=xiaozhi_esp32_server -e MYSQL_INITDB_ARGS="--character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci" -e TZ=Asia/Shanghai -d mysql:latest
 ```
 
 ## 2.安装redis
@@ -313,13 +293,13 @@ npm run serve
 运行成功后，你需要使用浏览器，打开`智控台`，链接：http://127.0.0.1:8001 ，注册第一个用户。第一个用户即是超级管理员，以后的用户都是普通用户。普通用户只能绑定设备和配置智能体;超级管理员可以进行模型管理、用户管理、参数配置等功能。
 
 
-重要：注册成功后，使用超级管理员账号，登录系统，在顶部菜单找到`模型配置`，然后在左侧栏点击`大语言模型`，找到第一条数据`智谱AI`，点击`修改`按钮，
+重要：注册成功后，使用超级管理员账号，登录智控台，在顶部菜单找到`模型配置`，然后在左侧栏点击`大语言模型`，找到第一条数据`智谱AI`，点击`修改`按钮，
 弹出修改框后，将你注册到的`智谱AI`的密钥填写到`API密钥`中。然后点击保存。
 
-重要：注册成功后，使用超级管理员账号，登录系统，在顶部菜单找到`模型配置`，然后在左侧栏点击`大语言模型`，找到第一条数据`智谱AI`，点击`修改`按钮，
+重要：注册成功后，使用超级管理员账号，登录智控台，在顶部菜单找到`模型配置`，然后在左侧栏点击`大语言模型`，找到第一条数据`智谱AI`，点击`修改`按钮，
 弹出修改框后，将你注册到的`智谱AI`的密钥填写到`API密钥`中。然后点击保存。
 
-重要：注册成功后，使用超级管理员账号，登录系统，在顶部菜单找到`模型配置`，然后在左侧栏点击`大语言模型`，找到第一条数据`智谱AI`，点击`修改`按钮，
+重要：注册成功后，使用超级管理员账号，登录智控台，在顶部菜单找到`模型配置`，然后在左侧栏点击`大语言模型`，找到第一条数据`智谱AI`，点击`修改`按钮，
 弹出修改框后，将你注册到的`智谱AI`的密钥填写到`API密钥`中。然后点击保存。
 
 ## 5.安装Python环境
@@ -384,9 +364,12 @@ pip install -r requirements.txt
 
 ## 8.配置项目文件
 
-使用超级管理员账号，登录智控台 http://127.0.0.1:8001 ，在顶部菜单找到`参数管理`，找到列表中第三条数据，参数编码是`server.secret`，复制它到`参数值`。
+使用超级管理员账号，登录智控台 ，在顶部菜单找到`参数管理`，找到列表中第一条数据，参数编码是`server.secret`，复制它到`参数值`。
 
 `server.secret`需要说明一下，这个`参数值`很重要，作用是让我们的`Server`端连接`manager-api`。`server.secret`是每次从零部署manager模块时，会自动随机生成的密钥。
+
+如果你的`xiaozhi-server`目录没有`data`，你需要创建`data`目录。
+如果你的`data`下面没有`.config.yaml`文件，你可以把`xiaozhi-server`目录下的`config_from_api.yaml`文件复制到`data`，并重命名为`.config.yaml`
 
 复制`参数值`后，打开`xiaozhi-server`下的`data`目录的`.config.yaml`文件。此刻你的配置文件内容应该是这样的：
 
@@ -422,7 +405,7 @@ python app.py
 25-02-23 12:01:09[core.websocket_server] - INFO - =======================================================
 ```
 
-由于你是全模块部署，因此你有两个重要的接口需要写入到esp32中。
+由于你是全模块部署，因此你有两个重要的接口。
 
 OTA接口：
 ```
@@ -434,7 +417,18 @@ Websocket接口：
 ws://你电脑局域网的ip:8000/xiaozhi/v1/
 ```
 
-接下来，你就可以开始 [编译esp32固件](firmware-build.md)了。
+请你务必把以上两个接口地址写入到智控台中：他们将会影响websocket地址发放和自动升级功能。
+
+1、使用超级管理员账号，登录智控台，在顶部菜单找到`参数管理`，找到参数编码是`server.websocket`，输入你的`Websocket接口`。
+
+2、使用超级管理员账号，登录智控台，在顶部菜单找到`参数管理`，找到数编码是`server.ota`，输入你的`OTA接口`。
+
+
+接下来，你就可以开始操作你的esp32设备了，你可以`自行编译esp32固件`也可以配置使用`虾哥编译好的1.6.1以上版本的固件`。两个任选一个
+
+1、 [编译自己的esp32固件](firmware-build.md)了。
+
+2、 [基于虾哥编译好的固件配置自定义服务器](firmware-setting.md)了。
 
 # 常见问题
 

@@ -20,7 +20,7 @@ public interface ErrorCode {
     int ACCOUNT_DISABLE = 10005;
     int IDENTIFIER_NOT_NULL = 10006;
     int CAPTCHA_ERROR = 10007;
-    int SUB_MENU_EXIST = 10008;
+    int PHONE_NOT_NULL = 10008;
     int PASSWORD_ERROR = 10009;
 
     int SUPERIOR_DEPT_ERROR = 10011;
@@ -52,4 +52,7 @@ public interface ErrorCode {
     int PARAM_BOOLEAN_INVALID = 10038;
     int PARAM_ARRAY_INVALID = 10039;
     int PARAM_JSON_INVALID = 10040;
+
+    int OTA_DEVICE_NOT_FOUND = 10041;
+    int OTA_DEVICE_NEED_BIND = 10042;
 }

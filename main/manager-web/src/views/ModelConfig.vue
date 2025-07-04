@@ -3,21 +3,15 @@
     <HeaderBar />
 
     <div class="operation-bar">
-        <h2 class="page-title">{{ modelTypeText }}</h2>
+      <h2 class="page-title">{{ modelTypeText }}</h2>
       <div class="action-group">
-            <div class="search-group">
-                <el-input
-                    placeholder="请输入模型名称查询"
-                    v-model="search"
-                    class="search-input"
-                    clearable
-                    @keyup.enter.native="handleSearch"
-                    style="width: 240px"
-                />
-                <el-button class="btn-search" @click="handleSearch">
-                  搜索
-                </el-button>
-            </div>
+        <div class="search-group">
+          <el-input placeholder="请输入模型名称查询" v-model="search" class="search-input" clearable
+            @keyup.enter.native="handleSearch" style="width: 240px" />
+          <el-button class="btn-search" @click="handleSearch">
+            搜索
+          </el-button>
+        </div>
       </div>
     </div>
 
@@ -36,6 +30,9 @@
           <el-menu-item index="llm">
             <span class="menu-text">大语言模型</span>
           </el-menu-item>
+          <el-menu-item index="vllm">
+            <span class="menu-text">视觉大模型</span>
+          </el-menu-item>
           <el-menu-item index="intent">
             <span class="menu-text">意图识别</span>
           </el-menu-item>
@@ -49,86 +46,94 @@
 
         <!-- 右侧内容 -->
         <div class="content-area">
-          <el-table ref="modelTable" style="width: 100%" :header-cell-style="{ background: 'transparent' }"
-            :data="modelList" class="data-table" header-row-class-name="table-header"
-            :header-cell-class-name="headerCellClassName" @selection-change="handleSelectionChange">
-            <el-table-column type="selection" width="55" align="center"></el-table-column>
-            <el-table-column label="模型名称" prop="modelName" align="center"></el-table-column>
-            <el-table-column label="模型编码" prop="modelCode" align="center"></el-table-column>
-            <el-table-column label="提供商" align="center">
-              <template slot-scope="scope">
-                {{ scope.row.configJson.type || '未知' }}
-              </template>
-            </el-table-column>
-            <el-table-column label="是否启用" align="center">
-              <template slot-scope="scope">
-                <el-switch v-model="scope.row.isEnabled" class="custom-switch" :active-value="1" :inactive-value="0"
-                  @change="handleStatusChange(scope.row)" />
-              </template>
-            </el-table-column>
-            <el-table-column label="是否默认" align="center">
-              <template slot-scope="scope">
-                <el-switch v-model="scope.row.isDefault" class="custom-switch" :active-value="1" :inactive-value="0"
-                  @change="handleDefaultChange(scope.row)" />
-              </template>
-            </el-table-column>
-            <el-table-column v-if="activeTab === 'tts'" label="音色管理" align="center">
-              <template slot-scope="scope">
-                <el-button type="text" size="mini" @click="openTtsDialog(scope.row)" class="voice-management-btn">
-                  音色管理
+          <el-card class="model-card" shadow="never">
+            <el-table ref="modelTable" style="width: 100%" v-loading="loading" element-loading-text="拼命加载中"
+              element-loading-spinner="el-icon-loading" element-loading-background="rgba(255, 255, 255, 0.7)"
+              :header-cell-style="{ background: 'transparent' }" :data="modelList" class="data-table"
+              header-row-class-name="table-header" :header-cell-class-name="headerCellClassName"
+              @selection-change="handleSelectionChange">
+              <el-table-column type="selection" width="55" align="center"></el-table-column>
+              <el-table-column label="模型ID" prop="id" align="center"></el-table-column>
+              <el-table-column label="模型名称" prop="modelName" align="center"></el-table-column>
+              <el-table-column label="提供商" align="center">
+                <template slot-scope="scope">
+                  {{ scope.row.configJson.type || '未知' }}
+                </template>
+              </el-table-column>
+              <el-table-column label="是否启用" align="center">
+                <template slot-scope="scope">
+                  <el-switch v-model="scope.row.isEnabled" class="custom-switch" :active-value="1" :inactive-value="0"
+                    @change="handleStatusChange(scope.row)" />
+                </template>
+              </el-table-column>
+              <el-table-column label="是否默认" align="center">
+                <template slot-scope="scope">
+                  <el-switch v-model="scope.row.isDefault" class="custom-switch" :active-value="1" :inactive-value="0"
+                    @change="handleDefaultChange(scope.row)" />
+                </template>
+              </el-table-column>
+              <el-table-column v-if="activeTab === 'tts'" label="音色管理" align="center">
+                <template slot-scope="scope">
+                  <el-button type="text" size="mini" @click="openTtsDialog(scope.row)" class="voice-management-btn">
+                    音色管理
+                  </el-button>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" align="center" width="150px">
+                <template slot-scope="scope">
+                  <el-button type="text" size="mini" @click="editModel(scope.row)" class="edit-btn">
+                    修改
+                  </el-button>
+                  <el-button type="text" size="mini" @click="deleteModel(scope.row)" class="delete-btn">
+                    删除
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <div class="table-footer">
+              <div class="batch-actions">
+                <el-button size="mini" type="primary" @click="selectAll">
+                  {{ isAllSelected ?
+                    '取消全选' : '全选' }}
                 </el-button>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" align="center" width="150px">
-              <template slot-scope="scope">
-                <el-button type="text" size="mini" @click="editModel(scope.row)" class="edit-btn">
-                  修改
+                <el-button type="success" size="mini" @click="addModel" class="add-btn">
+                  新增
                 </el-button>
-                <el-button type="text" size="mini" @click="deleteModel(scope.row)" class="delete-btn">
+                <el-button size="mini" type="danger" icon="el-icon-delete" @click="batchDelete">
                   删除
                 </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+              </div>
+              <div class="custom-pagination">
 
-          <div class="table-footer">
-            <div class="batch-actions">
-              <el-button size="mini" type="primary" @click="selectAll" >
-                {{ isAllSelected ?
-                '取消全选' : '全选' }}
-              </el-button>
-              <el-button type="success" size="mini" @click="addModel" class="add-btn">
-                新增
-              </el-button>
-              <el-button size="mini" type="danger" icon="el-icon-delete" @click="batchDelete">
-                删除
-              </el-button>
+                <el-select v-model="pageSize" @change="handlePageSizeChange" class="page-size-select">
+                  <el-option v-for="item in pageSizeOptions" :key="item" :label="`${item}条/页`" :value="item">
+                  </el-option>
+                </el-select>
+
+                <button class="pagination-btn" :disabled="currentPage === 1" @click="goFirst">首页</button>
+                <button class="pagination-btn" :disabled="currentPage === 1" @click="goPrev">上一页</button>
+
+                <button v-for="page in visiblePages" :key="page" class="pagination-btn"
+                  :class="{ active: page === currentPage }" @click="goToPage(page)">
+                  {{ page }}
+                </button>
+
+                <button class="pagination-btn" :disabled="currentPage === pageCount" @click="goNext">下一页</button>
+                <span class="total-text">共{{ total }}条记录</span>
+              </div>
             </div>
-            <div class="custom-pagination">
-              <button class="pagination-btn" :disabled="currentPage === 1" @click="goFirst">首页</button>
-              <button class="pagination-btn" :disabled="currentPage === 1" @click="goPrev">上一页</button>
-
-              <button v-for="page in visiblePages" :key="page" class="pagination-btn"
-                :class="{ active: page === currentPage }" @click="goToPage(page)">
-                {{ page }}
-              </button>
-
-              <button class="pagination-btn" :disabled="currentPage === pageCount" @click="goNext">下一页</button>
-              <span class="total-text">共{{ total }}条记录</span>
-            </div>
-          </div>
+          </el-card>
         </div>
       </div>
 
       <ModelEditDialog :modelType="activeTab" :visible.sync="editDialogVisible" :modelData="editModelData"
         @save="handleModelSave" />
-      <TtsModel :visible.sync="ttsDialogVisible" :ttsModelId="selectedTtsModelId" />
+      <TtsModel :visible.sync="ttsDialogVisible" :ttsModelId="selectedTtsModelId" :modelConfig="selectedModelConfig" />
       <AddModelDialog :modelType="activeTab" :visible.sync="addDialogVisible" @confirm="handleAddConfirm" />
     </div>
-
-    <div class="copyright">
-      ©2025 xiaozhi-esp32-server
-    </div>
+    <el-footer>
+      <version-footer />
+    </el-footer>
   </div>
 </template>
 
@@ -138,9 +143,9 @@ import AddModelDialog from "@/components/AddModelDialog.vue";
 import HeaderBar from "@/components/HeaderBar.vue";
 import ModelEditDialog from "@/components/ModelEditDialog.vue";
 import TtsModel from "@/components/TtsModel.vue";
-
+import VersionFooter from "@/components/VersionFooter.vue";
 export default {
-  components: { HeaderBar, ModelEditDialog, TtsModel, AddModelDialog },
+  components: { HeaderBar, ModelEditDialog, TtsModel, AddModelDialog, VersionFooter },
   data() {
     return {
       addDialogVisible: false,
@@ -151,11 +156,14 @@ export default {
       ttsDialogVisible: false,
       selectedTtsModelId: '',
       modelList: [],
+      pageSizeOptions: [10, 20, 50, 100],
       currentPage: 1,
-      pageSize: 5,
+      pageSize: 10,
       total: 0,
       selectedModels: [],
-      isAllSelected: false
+      isAllSelected: false,
+      loading: false,
+      selectedModelConfig: {}
     };
   },
 
@@ -164,20 +172,18 @@ export default {
   },
 
   computed: {
-
     modelTypeText() {
       const map = {
         vad: '语言活动检测模型(VAD)',
         asr: '语音识别模型(ASR)',
         llm: '大语言模型（LLM）',
+        vllm: '视觉大模型（VLLM）',
         intent: '意图识别模型(Intent)',
         tts: '语音合成模型(TTS)',
         memory: '记忆模型(Memory)'
       }
       return map[this.activeTab] || '模型配置'
     },
-
-
     pageCount() {
       return Math.ceil(this.total / this.pageSize);
     },
@@ -199,8 +205,14 @@ export default {
   },
 
   methods: {
+    handlePageSizeChange(val) {
+      this.pageSize = val;
+      this.currentPage = 1;
+      this.loadData();
+    },
     openTtsDialog(row) {
       this.selectedTtsModelId = row.id;
+      this.selectedModelConfig = row;
       this.ttsDialogVisible = true;
     },
     headerCellClassName({ column, columnIndex }) {
@@ -211,7 +223,8 @@ export default {
     },
     handleMenuSelect(index) {
       this.activeTab = index;
-      this.currentPage = 1;
+      this.currentPage = 1;  // 重置到第一页
+      this.pageSize = 10;     // 可选：重置每页条数
       this.loadData();
     },
     handleSearch() {
@@ -296,9 +309,10 @@ export default {
       this.currentPage = page;
       this.$refs.modelTable.clearSelection();
     },
-    handleModelSave({ provideCode, formData }) {
+    handleModelSave({ provideCode, formData, done }) {
       const modelType = this.activeTab;
       const id = formData.id;
+
       Api.model.updateModel(
         { modelType, provideCode, id, formData },
         ({ data }) => {
@@ -309,6 +323,7 @@ export default {
           } else {
             this.$message.error(data.msg || '保存失败');
           }
+          done && done(); // 调用done回调关闭加载状态
         }
       );
     },
@@ -380,6 +395,7 @@ export default {
 
     // 获取模型配置列表
     loadData() {
+      this.loading = true; // 开始加载
       const params = {
         modelType: this.activeTab,
         modelName: this.search,
@@ -388,6 +404,7 @@ export default {
       };
 
       Api.model.getModelList(params, ({ data }) => {
+        this.loading = false; // 结束加载
         if (data.code === 0) {
           this.modelList = data.data.list;
           this.total = data.data.total;
@@ -456,7 +473,9 @@ export default {
 .main-wrapper {
   margin: 5px 22px;
   border-radius: 15px;
-  min-height: 600px;
+  min-height: calc(100vh - 26vh);
+  height: auto;
+  max-height: 80vh;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
   position: relative;
   background: rgba(237, 242, 255, 0.5);
@@ -472,12 +491,6 @@ export default {
 .page-title {
   font-size: 24px;
   margin: 0;
-}
-
-.right-operations {
-  display: flex;
-  gap: 10px;
-  margin-left: auto;
 }
 
 .content-panel {
@@ -508,8 +521,9 @@ export default {
 
 .nav-panel .el-menu-item {
   height: 50px;
+  background: #e9f0ff;
   line-height: 50px;
-  border-radius: 4px;
+  border-radius: 4px 0 0 4px !important;
   transition: all 0.3s;
   display: flex !important;
   justify-content: flex-end;
@@ -520,8 +534,7 @@ export default {
 }
 
 .nav-panel .el-menu-item.is-active {
-  background: #e9f0ff;
-  color: #0ba6f4 !important;
+  background: #5778ff;
   position: relative;
   padding-left: 40px !important;
 }
@@ -534,7 +547,7 @@ export default {
   transform: translateY(-50%);
   width: 13px;
   height: 13px;
-  background: #409EFF;
+  background: #fff;
   border-radius: 50%;
   box-shadow: 0 0 4px rgba(64, 158, 255, 0.5);
 }
@@ -552,17 +565,10 @@ export default {
   padding: 24px;
   height: 100%;
   min-width: 600px;
-  overflow-x: auto;
+  overflow: hidden;
   background-color: white;
-
-}
-
-.title-bar {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-  flex-wrap: nowrap;
+  flex-direction: column;
 }
 
 .action-group {
@@ -586,6 +592,11 @@ export default {
   color: white;
 }
 
+.btn-search:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
 ::v-deep .search-input .el-input__inner {
   border-radius: 4px;
   border: 1px solid #DCDFE6;
@@ -593,20 +604,53 @@ export default {
   transition: border-color 0.2s;
 }
 
+::v-deep .page-size-select {
+  width: 100px;
+  margin-right: 8px;
+}
+
+::v-deep .page-size-select .el-input__inner {
+  height: 32px;
+  line-height: 32px;
+  border-radius: 4px;
+  border: 1px solid #e4e7ed;
+  background: #dee7ff;
+  color: #606266;
+  font-size: 14px;
+}
+
+::v-deep .page-size-select .el-input__suffix {
+  right: 6px;
+  width: 15px;
+  height: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  top: 6px;
+  border-radius: 4px;
+}
+
+::v-deep .page-size-select .el-input__suffix-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+::v-deep .page-size-select .el-icon-arrow-up:before {
+  content: "";
+  display: inline-block;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 9px solid #606266;
+  position: relative;
+  transform: rotate(0deg);
+  transition: transform 0.3s;
+}
+
 ::v-deep .search-input .el-input__inner:focus {
   border-color: #6b8cff;
   outline: none;
-}
-
-.btn-search {
-  background: linear-gradient(135deg, #6b8cff, #a966ff);
-  border: none;
-  color: white;
-}
-
-.btn-search:hover {
-  opacity: 0.9;
-  transform: translateY(-1px);
 }
 
 .data-table {
@@ -626,36 +670,18 @@ export default {
 }
 
 .table-footer {
-  margin-top: 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 16px 0;
   width: 100%;
+  flex-shrink: 0;
+  min-height: 60px;
+  background: white;
 }
 
 .batch-actions {
   display: flex;
-  gap: 8px;
-}
-
-.copyright {
-  text-align: center;
-  color: #979db1;
-  font-size: 12px;
-  font-weight: 400;
-  margin-top: auto;
-  padding: 30px 0 20px;
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 100%;
-}
-
-.title-wrapper {
-  display: flex;
-  align-items: center;
   gap: 8px;
 }
 
@@ -710,11 +736,6 @@ export default {
   background-color: transparent !important;
 }
 
-.pagination-container {
-  display: flex;
-  justify-content: flex-end;
-}
-
 ::v-deep .el-table .custom-selection-header .cell .el-checkbox__inner {
   display: none !important;
 }
@@ -738,7 +759,7 @@ export default {
 }
 
 ::v-deep .nav-panel .el-menu-item.is-active .menu-text {
-  color: #409EFF !important;
+  color: #fff !important;
 }
 
 ::v-deep .data-table {
@@ -815,11 +836,11 @@ export default {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 15px;
 
   /* 导航按钮样式 (首页、上一页、下一页) */
   .pagination-btn:first-child,
   .pagination-btn:nth-child(2),
+  .pagination-btn:nth-child(3),
   .pagination-btn:nth-last-child(2) {
     min-width: 60px;
     height: 32px;
@@ -843,7 +864,7 @@ export default {
   }
 
   /* 数字按钮样式 */
-  .pagination-btn:not(:first-child):not(:nth-child(2)):not(:nth-last-child(2)) {
+  .pagination-btn:not(:first-child):not(:nth-child(2)):not(:nth-child(3)):not(:nth-last-child(2)) {
     min-width: 28px;
     height: 32px;
     padding: 0;
@@ -875,5 +896,53 @@ export default {
     font-size: 14px;
     margin-left: 10px;
   }
+}
+
+.model-card {
+  background: white;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border: none;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.model-card ::v-deep .el-card__body {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.data-table {
+  --table-max-height: calc(100vh - 45vh);
+  max-height: var(--table-max-height);
+}
+
+.data-table ::v-deep .el-table__body-wrapper {
+  max-height: calc(var(--table-max-height) - 80px);
+  overflow-y: auto;
+}
+
+::v-deep .el-loading-mask {
+  background-color: rgba(255, 255, 255, 0.6) !important;
+  backdrop-filter: blur(2px);
+}
+
+::v-deep .el-loading-spinner .circular {
+  width: 28px;
+  height: 28px;
+}
+
+::v-deep .el-loading-spinner .path {
+  stroke: #6b8cff;
+}
+
+::v-deep .el-loading-text {
+  color: #6b8cff !important;
+  font-size: 14px;
+  margin-top: 8px;
 }
 </style>

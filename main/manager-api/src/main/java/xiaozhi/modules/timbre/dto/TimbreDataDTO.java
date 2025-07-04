@@ -24,8 +24,13 @@ public class TimbreDataDTO {
     private String name;
 
     @Schema(description = "备注")
-    @NotBlank(message = "{timbre.remark.require}")
     private String remark;
+
+    @Schema(description = "参考音频路径")
+    private String referenceAudio;
+
+    @Schema(description = "參考文本")
+    private String referenceText;
 
     @Schema(description = "排序")
     @Min(value = 0, message = "{sort.number}")
@@ -40,6 +45,5 @@ public class TimbreDataDTO {
     private String ttsVoice;
 
     @Schema(description = "音频播放地址")
-    @NotBlank(message = "{timbre.voiceDemo.require}")
     private String voiceDemo;
 }

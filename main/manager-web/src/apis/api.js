@@ -2,7 +2,9 @@
 import admin from './module/admin.js'
 import agent from './module/agent.js'
 import device from './module/device.js'
+import dict from './module/dict.js'
 import model from './module/model.js'
+import ota from './module/ota.js'
 import timbre from "./module/timbre.js"
 import user from './module/user.js'
 
@@ -21,7 +23,6 @@ export function getServiceUrl() {
     return DEV_API_SERVICE
 }
 
-
 /** request服务封装 */
 export default {
     getServiceUrl,
@@ -31,4 +32,6 @@ export default {
     device,
     model,
     timbre,
+    ota,
+    dict
 }
