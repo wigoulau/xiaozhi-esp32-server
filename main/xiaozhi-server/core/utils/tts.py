@@ -1,11 +1,34 @@
 import os
 import re
 import sys
-from config.logger import setup_logging
 import importlib
+
+from config.logger import setup_logging
+from core.utils.textUtils import check_emoji
 
 logger = setup_logging()
 
+punctuation_set = {
+    "，",
+    ",",  # 中文逗号 + 英文逗号
+    "。",
+    ".",  # 中文句号 + 英文句号
+    "！",
+    "!",  # 中文感叹号 + 英文感叹号
+    "“",
+    "”",
+    '"',  # 中文双引号 + 英文引号
+    "：",
+    ":",  # 中文冒号 + 英文冒号
+    "-",
+    "－",  # 英文连字符 + 中文全角横线
+    "、",  # 中文顿号
+    "[",
+    "]",  # 方括号
+    "【",
+    "】",  # 中文方括号
+    "~",  # 波浪号
+}
 
 def create_instance(class_name, *args, **kwargs):
     # 创建TTS实例
@@ -109,4 +132,39 @@ class MarkdownCleaner:
         """
         for regex, replacement in MarkdownCleaner.REGEXES:
             text = regex.sub(replacement, text)
+
+        # 去除emoji表情
+        text = check_emoji(text)
+
+        # 检查文本是否全为英文和基本标点符号
+        if text and all((c.isascii() or c.isspace() or c in punctuation_set) for c in text):
+            # 保留原始空格，直接返回
+            return text
+
         return text.strip()
+
+def convert_percentage_to_range(percentage, min_val, max_val, base_val=None):
+    """
+    将百分比(-100~100)转换为指定范围的值
+
+    Args:
+        percentage: 百分比值 (-100 到 100)
+        min_val: 目标范围最小值
+        max_val: 目标范围最大值
+        base_val: 基准值（可选，默认为范围中点）
+
+    Returns:
+        转换后的值
+    """
+    percentage, min_val, max_val = float(percentage), float(min_val), float(max_val)
+    base_val = float(base_val) if base_val is not None else (min_val + max_val) / 2
+
+    if percentage < 0:
+        # 负百分比：从 base_val 向 min_val 线性插值
+        result = base_val + (base_val - min_val) * (percentage / 100)
+    else:
+        # 正百分比：从 base_val 向 max_val 线性插值
+        result = base_val + (max_val - base_val) * (percentage / 100)
+
+    # 确保结果在有效范围内
+    return max(min_val, min(max_val, result))

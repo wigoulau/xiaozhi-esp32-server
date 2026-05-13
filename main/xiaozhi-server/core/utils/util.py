@@ -1,41 +1,20 @@
-import json
-import socket
-import subprocess
 import re
 import os
+import json
+import copy
 import wave
+import socket
+import asyncio
+import requests
+import subprocess
+import numpy as np
+import opuslib_next
 from io import BytesIO
 from core.utils import p3
-import numpy as np
-import requests
-import opuslib_next
 from pydub import AudioSegment
-import copy
+from typing import Callable, Any
 
 TAG = __name__
-emoji_map = {
-    "neutral": "😶",
-    "happy": "🙂",
-    "laughing": "😆",
-    "funny": "😂",
-    "sad": "😔",
-    "angry": "😠",
-    "crying": "😭",
-    "loving": "😍",
-    "embarrassed": "😳",
-    "surprised": "😲",
-    "shocked": "😱",
-    "thinking": "🤔",
-    "winking": "😉",
-    "cool": "😎",
-    "relaxed": "😌",
-    "delicious": "🤤",
-    "kissy": "😘",
-    "confident": "😏",
-    "sleepy": "😴",
-    "silly": "😜",
-    "confused": "🙄",
-}
 
 
 def get_local_ip():
@@ -96,11 +75,23 @@ def is_private_ip(ip_addr):
 
 def get_ip_info(ip_addr, logger):
     try:
+        # 导入全局缓存管理器
+        from core.utils.cache.manager import cache_manager, CacheType
+
+        # 先从缓存获取
+        cached_ip_info = cache_manager.get(CacheType.IP_INFO, ip_addr)
+        if cached_ip_info is not None:
+            return cached_ip_info
+
+        # 缓存未命中，调用API
         if is_private_ip(ip_addr):
             ip_addr = ""
         url = f"https://whois.pconline.com.cn/ipJson.jsp?json=true&ip={ip_addr}"
         resp = requests.get(url).json()
         ip_info = {"city": resp.get("city")}
+
+        # 存入缓存
+        cache_manager.set(CacheType.IP_INFO, ip_addr, ip_info)
         return ip_info
     except Exception as e:
         logger.bind(tag=TAG).error(f"Error getting client ip info: {e}")
@@ -111,51 +102,6 @@ def write_json_file(file_path, data):
     """将数据写入 JSON 文件"""
     with open(file_path, "w", encoding="utf-8") as file:
         json.dump(data, file, ensure_ascii=False, indent=4)
-
-
-def is_punctuation_or_emoji(char):
-    """检查字符是否为空格、指定标点或表情符号"""
-    # 定义需要去除的中英文标点（包括全角/半角）
-    punctuation_set = {
-        "，",
-        ",",  # 中文逗号 + 英文逗号
-        "-",
-        "－",  # 英文连字符 + 中文全角横线
-        "、",  # 中文顿号
-        "“",
-        "”",
-        '"',  # 中文双引号 + 英文引号
-        "：",
-        ":",  # 中文冒号 + 英文冒号
-    }
-    if char.isspace() or char in punctuation_set:
-        return True
-    # 检查表情符号（保留原有逻辑）
-    code_point = ord(char)
-    emoji_ranges = [
-        (0x1F600, 0x1F64F),
-        (0x1F300, 0x1F5FF),
-        (0x1F680, 0x1F6FF),
-        (0x1F900, 0x1F9FF),
-        (0x1FA70, 0x1FAFF),
-        (0x2600, 0x26FF),
-        (0x2700, 0x27BF),
-    ]
-    return any(start <= code_point <= end for start, end in emoji_ranges)
-
-
-def get_string_no_punctuation_or_emoji(s):
-    """去除字符串首尾的空格、标点符号和表情符号"""
-    chars = list(s)
-    # 处理开头的字符
-    start = 0
-    while start < len(chars) and is_punctuation_or_emoji(chars[start]):
-        start += 1
-    # 处理结尾的字符
-    end = len(chars) - 1
-    while end >= start and is_punctuation_or_emoji(chars[end]):
-        end -= 1
-    return "".join(chars[start : end + 1])
 
 
 def remove_punctuation_and_length(text):
@@ -208,31 +154,67 @@ def parse_string_to_list(value, separator=";"):
     return []
 
 
-def check_ffmpeg_installed():
-    ffmpeg_installed = False
+def check_ffmpeg_installed() -> bool:
+    """
+    检查当前环境中是否已正确安装并可执行 ffmpeg。
+
+    Returns:
+        bool: 如果 ffmpeg 正常可用，返回 True；否则抛出 ValueError 异常。
+
+    Raises:
+        ValueError: 当检测到 ffmpeg 未安装或依赖缺失时，抛出详细的提示信息。
+    """
     try:
-        # 执行ffmpeg -version命令，并捕获输出
+        # 尝试执行 ffmpeg 命令
         result = subprocess.run(
             ["ffmpeg", "-version"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            check=True,  # 如果返回码非零则抛出异常
+            check=True,  # 非零退出码会触发 CalledProcessError
         )
-        # 检查输出中是否包含版本信息（可选）
-        output = result.stdout + result.stderr
-        if "ffmpeg version" in output.lower():
-            ffmpeg_installed = True
-        return False
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        # 命令执行失败或未找到
-        ffmpeg_installed = False
-    if not ffmpeg_installed:
-        error_msg = "您的电脑还没正确安装ffmpeg\n"
-        error_msg += "\n建议您：\n"
-        error_msg += "1、按照项目的安装文档，正确进入conda环境\n"
-        error_msg += "2、查阅安装文档，如何在conda环境中安装ffmpeg\n"
-        raise ValueError(error_msg)
+
+        output = (result.stdout + result.stderr).lower()
+        if "ffmpeg version" in output:
+            return True
+
+        # 如果未检测到版本信息，也视为异常情况
+        raise ValueError("未检测到有效的 ffmpeg 版本输出。")
+
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        # 提取错误输出
+        stderr_output = ""
+        if isinstance(e, subprocess.CalledProcessError):
+            stderr_output = (e.stderr or "").strip()
+        else:
+            stderr_output = str(e).strip()
+
+        # 构建基础错误提示
+        error_msg = [
+            "❌ 检测到 ffmpeg 无法正常运行。\n",
+            "建议您：",
+            "1. 确认已正确激活 conda 环境；",
+            "2. 查阅项目安装文档，了解如何在 conda 环境中安装 ffmpeg。\n",
+        ]
+
+        # 🎯 针对具体错误信息提供额外提示
+        if "libiconv.so.2" in stderr_output:
+            error_msg.append("⚠️ 发现缺少依赖库：libiconv.so.2")
+            error_msg.append("解决方法：在当前 conda 环境中执行：")
+            error_msg.append("   conda install -c conda-forge libiconv\n")
+        elif (
+            "no such file or directory" in stderr_output
+            and "ffmpeg" in stderr_output.lower()
+        ):
+            error_msg.append("⚠️ 系统未找到 ffmpeg 可执行文件。")
+            error_msg.append("解决方法：在当前 conda 环境中执行：")
+            error_msg.append("   conda install -c conda-forge ffmpeg\n")
+        else:
+            error_msg.append("错误详情：")
+            error_msg.append(stderr_output or "未知错误。")
+
+        # 抛出详细异常信息
+        raise ValueError("\n".join(error_msg)) from e
 
 
 def extract_json_from_string(input_string):
@@ -244,516 +226,9 @@ def extract_json_from_string(input_string):
     return None
 
 
-def analyze_emotion(text):
-    """
-    分析文本情感并返回对应的emoji名称（支持中英文）
-    """
-    if not text or not isinstance(text, str):
-        return "neutral"
-
-    original_text = text
-    text = text.lower().strip()
-
-    # 检查是否包含现有emoji
-    for emotion, emoji in emoji_map.items():
-        if emoji in original_text:
-            return emotion
-
-    # 标点符号分析
-    has_exclamation = "!" in original_text or "！" in original_text
-    has_question = "?" in original_text or "？" in original_text
-    has_ellipsis = "..." in original_text or "…" in original_text
-
-    # 定义情感关键词映射（中英文扩展版）
-    emotion_keywords = {
-        "happy": [
-            "开心",
-            "高兴",
-            "快乐",
-            "愉快",
-            "幸福",
-            "满意",
-            "棒",
-            "好",
-            "不错",
-            "完美",
-            "棒极了",
-            "太好了",
-            "好呀",
-            "好的",
-            "happy",
-            "joy",
-            "great",
-            "good",
-            "nice",
-            "awesome",
-            "fantastic",
-            "wonderful",
-        ],
-        "laughing": [
-            "哈哈",
-            "哈哈哈",
-            "呵呵",
-            "嘿嘿",
-            "嘻嘻",
-            "笑死",
-            "太好笑了",
-            "笑死我了",
-            "lol",
-            "lmao",
-            "haha",
-            "hahaha",
-            "hehe",
-            "rofl",
-            "funny",
-            "laugh",
-        ],
-        "funny": [
-            "搞笑",
-            "滑稽",
-            "逗",
-            "幽默",
-            "笑点",
-            "段子",
-            "笑话",
-            "太逗了",
-            "hilarious",
-            "joke",
-            "comedy",
-        ],
-        "sad": [
-            "伤心",
-            "难过",
-            "悲哀",
-            "悲伤",
-            "忧郁",
-            "郁闷",
-            "沮丧",
-            "失望",
-            "想哭",
-            "难受",
-            "不开心",
-            "唉",
-            "呜呜",
-            "sad",
-            "upset",
-            "unhappy",
-            "depressed",
-            "sorrow",
-            "gloomy",
-        ],
-        "angry": [
-            "生气",
-            "愤怒",
-            "气死",
-            "讨厌",
-            "烦人",
-            "可恶",
-            "烦死了",
-            "恼火",
-            "暴躁",
-            "火大",
-            "愤怒",
-            "气炸了",
-            "angry",
-            "mad",
-            "annoyed",
-            "furious",
-            "pissed",
-            "hate",
-        ],
-        "crying": [
-            "哭泣",
-            "泪流",
-            "大哭",
-            "伤心欲绝",
-            "泪目",
-            "流泪",
-            "哭死",
-            "哭晕",
-            "想哭",
-            "泪崩",
-            "cry",
-            "crying",
-            "tears",
-            "sob",
-            "weep",
-        ],
-        "loving": [
-            "爱你",
-            "喜欢",
-            "爱",
-            "亲爱的",
-            "宝贝",
-            "么么哒",
-            "抱抱",
-            "想你",
-            "思念",
-            "最爱",
-            "亲亲",
-            "喜欢你",
-            "love",
-            "like",
-            "adore",
-            "darling",
-            "sweetie",
-            "honey",
-            "miss you",
-            "heart",
-        ],
-        "embarrassed": [
-            "尴尬",
-            "不好意思",
-            "害羞",
-            "脸红",
-            "难为情",
-            "社死",
-            "丢脸",
-            "出丑",
-            "embarrassed",
-            "awkward",
-            "shy",
-            "blush",
-        ],
-        "surprised": [
-            "惊讶",
-            "吃惊",
-            "天啊",
-            "哇塞",
-            "哇",
-            "居然",
-            "竟然",
-            "没想到",
-            "出乎意料",
-            "surprise",
-            "wow",
-            "omg",
-            "oh my god",
-            "amazing",
-            "unbelievable",
-        ],
-        "shocked": [
-            "震惊",
-            "吓到",
-            "惊呆了",
-            "不敢相信",
-            "震撼",
-            "吓死",
-            "恐怖",
-            "害怕",
-            "吓人",
-            "shocked",
-            "shocking",
-            "scared",
-            "frightened",
-            "terrified",
-            "horror",
-        ],
-        "thinking": [
-            "思考",
-            "考虑",
-            "想一下",
-            "琢磨",
-            "沉思",
-            "冥想",
-            "想",
-            "思考中",
-            "在想",
-            "think",
-            "thinking",
-            "consider",
-            "ponder",
-            "meditate",
-        ],
-        "winking": [
-            "调皮",
-            "眨眼",
-            "你懂的",
-            "坏笑",
-            "邪恶",
-            "奸笑",
-            "使眼色",
-            "wink",
-            "teasing",
-            "naughty",
-            "mischievous",
-        ],
-        "cool": [
-            "酷",
-            "帅",
-            "厉害",
-            "棒极了",
-            "真棒",
-            "牛逼",
-            "强",
-            "优秀",
-            "杰出",
-            "出色",
-            "完美",
-            "cool",
-            "awesome",
-            "amazing",
-            "great",
-            "impressive",
-            "perfect",
-        ],
-        "relaxed": [
-            "放松",
-            "舒服",
-            "惬意",
-            "悠闲",
-            "轻松",
-            "舒适",
-            "安逸",
-            "自在",
-            "relax",
-            "relaxed",
-            "comfortable",
-            "cozy",
-            "chill",
-            "peaceful",
-        ],
-        "delicious": [
-            "好吃",
-            "美味",
-            "香",
-            "馋",
-            "可口",
-            "香甜",
-            "大餐",
-            "大快朵颐",
-            "流口水",
-            "垂涎",
-            "delicious",
-            "yummy",
-            "tasty",
-            "yum",
-            "appetizing",
-            "mouthwatering",
-        ],
-        "kissy": [
-            "亲亲",
-            "么么",
-            "吻",
-            "mua",
-            "muah",
-            "亲一下",
-            "飞吻",
-            "kiss",
-            "xoxo",
-            "hug",
-            "muah",
-            "smooch",
-        ],
-        "confident": [
-            "自信",
-            "肯定",
-            "确定",
-            "毫无疑问",
-            "当然",
-            "必须的",
-            "毫无疑问",
-            "确信",
-            "坚信",
-            "confident",
-            "sure",
-            "certain",
-            "definitely",
-            "positive",
-        ],
-        "sleepy": [
-            "困",
-            "睡觉",
-            "晚安",
-            "想睡",
-            "好累",
-            "疲惫",
-            "疲倦",
-            "困了",
-            "想休息",
-            "睡意",
-            "sleep",
-            "sleepy",
-            "tired",
-            "exhausted",
-            "bedtime",
-            "good night",
-        ],
-        "silly": [
-            "傻",
-            "笨",
-            "呆",
-            "憨",
-            "蠢",
-            "二",
-            "憨憨",
-            "傻乎乎",
-            "呆萌",
-            "silly",
-            "stupid",
-            "dumb",
-            "foolish",
-            "goofy",
-            "ridiculous",
-        ],
-        "confused": [
-            "疑惑",
-            "不明白",
-            "不懂",
-            "困惑",
-            "疑问",
-            "为什么",
-            "怎么回事",
-            "啥意思",
-            "不清楚",
-            "confused",
-            "puzzled",
-            "doubt",
-            "question",
-            "what",
-            "why",
-            "how",
-        ],
-    }
-
-    # 特殊句型判断（中英文）
-    # 赞美他人
-    if any(
-        phrase in text
-        for phrase in [
-            "你真",
-            "你好",
-            "您真",
-            "你真棒",
-            "你好厉害",
-            "你太强了",
-            "你真好",
-            "你真聪明",
-            "you are",
-            "you're",
-            "you look",
-            "you seem",
-            "so smart",
-            "so kind",
-        ]
-    ):
-        return "loving"
-    # 自我赞美
-    if any(
-        phrase in text
-        for phrase in [
-            "我真",
-            "我最",
-            "我太棒了",
-            "我厉害",
-            "我聪明",
-            "我优秀",
-            "i am",
-            "i'm",
-            "i feel",
-            "so good",
-            "so happy",
-        ]
-    ):
-        return "cool"
-    # 晚安/睡觉相关
-    if any(
-        phrase in text
-        for phrase in [
-            "睡觉",
-            "晚安",
-            "睡了",
-            "好梦",
-            "休息了",
-            "去睡了",
-            "sleep",
-            "good night",
-            "bedtime",
-            "go to bed",
-        ]
-    ):
-        return "sleepy"
-    # 疑问句
-    if has_question and not has_exclamation:
-        return "thinking"
-    # 强烈情感（感叹号）
-    if has_exclamation and not has_question:
-        # 检查是否是积极内容
-        positive_words = (
-            emotion_keywords["happy"]
-            + emotion_keywords["laughing"]
-            + emotion_keywords["cool"]
-        )
-        if any(word in text for word in positive_words):
-            return "laughing"
-        # 检查是否是消极内容
-        negative_words = (
-            emotion_keywords["angry"]
-            + emotion_keywords["sad"]
-            + emotion_keywords["crying"]
-        )
-        if any(word in text for word in negative_words):
-            return "angry"
-        return "surprised"
-    # 省略号（表示犹豫或思考）
-    if has_ellipsis:
-        return "thinking"
-
-    # 关键词匹配（带权重）
-    emotion_scores = {emotion: 0 for emotion in emoji_map.keys()}
-
-    # 给匹配到的关键词加分
-    for emotion, keywords in emotion_keywords.items():
-        for keyword in keywords:
-            if keyword in text:
-                emotion_scores[emotion] += 1
-
-    # 给长文本中的重复关键词额外加分
-    if len(text) > 20:  # 长文本
-        for emotion, keywords in emotion_keywords.items():
-            for keyword in keywords:
-                emotion_scores[emotion] += text.count(keyword) * 0.5
-
-    # 根据分数选择最可能的情感
-    max_score = max(emotion_scores.values())
-    if max_score == 0:
-        return "happy"  # 默认
-
-    # 可能有多个情感同分，根据上下文选择最合适的
-    top_emotions = [e for e, s in emotion_scores.items() if s == max_score]
-
-    # 如果多个情感同分，使用以下优先级
-    priority_order = [
-        "laughing",
-        "crying",
-        "angry",
-        "surprised",
-        "shocked",  # 强烈情感优先
-        "loving",
-        "happy",
-        "funny",
-        "cool",  # 积极情感
-        "sad",
-        "embarrassed",
-        "confused",  # 消极情感
-        "thinking",
-        "winking",
-        "relaxed",  # 中性情感
-        "delicious",
-        "kissy",
-        "confident",
-        "sleepy",
-        "silly",  # 特殊场景
-    ]
-
-    for emotion in priority_order:
-        if emotion in top_emotions:
-            return emotion
-
-    return top_emotions[0]  # 如果都不在优先级列表里，返回第一个
-
-
-def audio_to_data(audio_file_path, is_opus=True):
+def audio_to_data_stream(
+    audio_file_path, is_opus=True, callback: Callable[[Any], Any] = None, sample_rate=16000, opus_encoder=None
+) -> None:
     # 获取文件后缀名
     file_type = os.path.splitext(audio_file_path)[1]
     if file_type:
@@ -763,44 +238,131 @@ def audio_to_data(audio_file_path, is_opus=True):
         audio_file_path, format=file_type, parameters=["-nostdin"]
     )
 
-    # 转换为单声道/16kHz采样率/16位小端编码（确保与编码器匹配）
-    audio = audio.set_channels(1).set_frame_rate(16000).set_sample_width(2)
-
-    # 音频时长(秒)
-    duration = len(audio) / 1000.0
+    # 转换为单声道/指定采样率/16位小端编码（确保与编码器匹配）
+    audio = audio.set_channels(1).set_frame_rate(sample_rate).set_sample_width(2)
 
     # 获取原始PCM数据（16位小端）
     raw_data = audio.raw_data
-    return pcm_to_data(raw_data, is_opus), duration
+    pcm_to_data_stream(raw_data, is_opus, callback, sample_rate, opus_encoder)
 
 
-def audio_bytes_to_data(audio_bytes, file_type, is_opus=True):
+async def audio_to_data(
+    audio_file_path: str, is_opus: bool = True, use_cache: bool = True
+) -> list[bytes]:
+    """
+    将音频文件转换为Opus/PCM编码的帧列表
+    Args:
+        audio_file_path: 音频文件路径
+        is_opus: 是否进行Opus编码
+        use_cache: 是否使用缓存
+    """
+    from core.utils.cache.manager import cache_manager
+    from core.utils.cache.config import CacheType
+
+    # 生成缓存键，包含文件路径和编码类型
+    cache_key = f"{audio_file_path}:{is_opus}"
+
+    # 尝试从缓存获取结果
+    if use_cache:
+        cached_result = cache_manager.get(CacheType.AUDIO_DATA, cache_key)
+        if cached_result is not None:
+            return cached_result
+
+    def _sync_audio_to_data():
+        # 获取文件后缀名
+        file_type = os.path.splitext(audio_file_path)[1]
+        if file_type:
+            file_type = file_type.lstrip(".")
+        # 读取音频文件，-nostdin 参数：不要从标准输入读取数据，否则FFmpeg会阻塞
+        audio = AudioSegment.from_file(
+            audio_file_path, format=file_type, parameters=["-nostdin"]
+        )
+
+        # 转换为单声道/16kHz采样率/16位小端编码（确保与编码器匹配）
+        audio = audio.set_channels(1).set_frame_rate(16000).set_sample_width(2)
+
+        # 获取原始PCM数据（16位小端）
+        raw_data = audio.raw_data
+
+        # 初始化Opus编码器
+        encoder = opuslib_next.Encoder(16000, 1, opuslib_next.APPLICATION_AUDIO)
+
+        # 编码参数
+        frame_duration = 60  # 60ms per frame
+        frame_size = int(16000 * frame_duration / 1000)  # 960 samples/frame
+
+        datas = []
+        # 按帧处理所有音频数据（包括最后一帧可能补零）
+        for i in range(0, len(raw_data), frame_size * 2):  # 16bit=2bytes/sample
+            # 获取当前帧的二进制数据
+            chunk = raw_data[i : i + frame_size * 2]
+
+            # 如果最后一帧不足，补零
+            if len(chunk) < frame_size * 2:
+                chunk += b"\x00" * (frame_size * 2 - len(chunk))
+
+            if is_opus:
+                # 转换为numpy数组处理
+                np_frame = np.frombuffer(chunk, dtype=np.int16)
+                # 编码Opus数据
+                frame_data = encoder.encode(np_frame.tobytes(), frame_size)
+            else:
+                frame_data = chunk if isinstance(chunk, bytes) else bytes(chunk)
+
+            datas.append(frame_data)
+
+        return datas
+
+    loop = asyncio.get_running_loop()
+    # 在单独的线程中执行同步的音频处理操作
+    result = await loop.run_in_executor(None, _sync_audio_to_data)
+
+    # 将结果存入缓存，使用配置中定义的TTL（10分钟）
+    if use_cache:
+        cache_manager.set(CacheType.AUDIO_DATA, cache_key, result)
+
+    return result
+
+
+def audio_bytes_to_data_stream(
+    audio_bytes, file_type, is_opus, callback: Callable[[Any], Any], sample_rate=16000, opus_encoder=None
+) -> None:
     """
     直接用音频二进制数据转为opus/pcm数据，支持wav、mp3、p3
     """
     if file_type == "p3":
         # 直接用p3解码
-        return p3.decode_opus_from_bytes(audio_bytes)
+        return p3.decode_opus_from_bytes_stream(audio_bytes, callback)
     else:
         # 其他格式用pydub
         audio = AudioSegment.from_file(
             BytesIO(audio_bytes), format=file_type, parameters=["-nostdin"]
         )
-        audio = audio.set_channels(1).set_frame_rate(16000).set_sample_width(2)
-        duration = len(audio) / 1000.0
+        audio = audio.set_channels(1).set_frame_rate(sample_rate).set_sample_width(2)
         raw_data = audio.raw_data
-        return pcm_to_data(raw_data, is_opus), duration
+        pcm_to_data_stream(raw_data, is_opus, callback, sample_rate, opus_encoder)
 
 
-def pcm_to_data(raw_data, is_opus=True):
-    # 初始化Opus编码器
-    encoder = opuslib_next.Encoder(16000, 1, opuslib_next.APPLICATION_AUDIO)
+def pcm_to_data_stream(raw_data, is_opus=True, callback: Callable[[Any], Any] = None, sample_rate=16000, opus_encoder=None):
+    """
+    将PCM数据流式编码为Opus或直接输出PCM
+
+    Args:
+        raw_data: PCM原始数据
+        is_opus: 是否编码为Opus
+        callback: 回调函数
+        sample_rate: 采样率
+        opus_encoder: OpusEncoderUtils对象(推荐提供以保持编码器状态连续)
+    """
+    using_temp_encoder = False
+    if is_opus and opus_encoder is None:
+        encoder = opuslib_next.Encoder(sample_rate, 1, opuslib_next.APPLICATION_AUDIO)
+        using_temp_encoder = True
 
     # 编码参数
     frame_duration = 60  # 60ms per frame
-    frame_size = int(16000 * frame_duration / 1000)  # 960 samples/frame
+    frame_size = int(sample_rate * frame_duration / 1000)  # samples/frame
 
-    datas = []
     # 按帧处理所有音频数据（包括最后一帧可能补零）
     for i in range(0, len(raw_data), frame_size * 2):  # 16bit=2bytes/sample
         # 获取当前帧的二进制数据
@@ -811,16 +373,19 @@ def pcm_to_data(raw_data, is_opus=True):
             chunk += b"\x00" * (frame_size * 2 - len(chunk))
 
         if is_opus:
-            # 转换为numpy数组处理
-            np_frame = np.frombuffer(chunk, dtype=np.int16)
-            # 编码Opus数据
-            frame_data = encoder.encode(np_frame.tobytes(), frame_size)
+            if using_temp_encoder:
+                # 使用临时编码器（仅用于独立音频场景）
+                np_frame = np.frombuffer(chunk, dtype=np.int16)
+                frame_data = encoder.encode(np_frame.tobytes(), frame_size)
+                callback(frame_data)
+            else:
+                # 使用外部编码器（TTS流式场景,保持状态连续）
+                is_last = (i + frame_size * 2 >= len(raw_data))
+                opus_encoder.encode_pcm_to_opus_stream(chunk, end_of_stream=is_last, callback=callback)
         else:
+            # PCM模式,直接输出
             frame_data = chunk if isinstance(chunk, bytes) else bytes(chunk)
-
-        datas.append(frame_data)
-
-    return datas
+            callback(frame_data)
 
 
 def opus_datas_to_wav_bytes(opus_datas, sample_rate=16000, channels=1):
@@ -828,26 +393,33 @@ def opus_datas_to_wav_bytes(opus_datas, sample_rate=16000, channels=1):
     将opus帧列表解码为wav字节流
     """
     decoder = opuslib_next.Decoder(sample_rate, channels)
-    pcm_datas = []
+    try:
+        pcm_datas = []
 
-    frame_duration = 60  # ms
-    frame_size = int(sample_rate * frame_duration / 1000)  # 960
+        frame_duration = 60  # ms
+        frame_size = int(sample_rate * frame_duration / 1000)  # 960
 
-    for opus_frame in opus_datas:
-        # 解码为PCM（返回bytes，2字节/采样点）
-        pcm = decoder.decode(opus_frame, frame_size)
-        pcm_datas.append(pcm)
+        for opus_frame in opus_datas:
+            # 解码为PCM（返回bytes，2字节/采样点）
+            pcm = decoder.decode(opus_frame, frame_size)
+            pcm_datas.append(pcm)
 
-    pcm_bytes = b"".join(pcm_datas)
+        pcm_bytes = b"".join(pcm_datas)
 
-    # 写入wav字节流
-    wav_buffer = BytesIO()
-    with wave.open(wav_buffer, "wb") as wf:
-        wf.setnchannels(channels)
-        wf.setsampwidth(2)  # 16bit
-        wf.setframerate(sample_rate)
-        wf.writeframes(pcm_bytes)
-    return wav_buffer.getvalue()
+        # 写入wav字节流
+        wav_buffer = BytesIO()
+        with wave.open(wav_buffer, "wb") as wf:
+            wf.setnchannels(channels)
+            wf.setsampwidth(2)  # 16bit
+            wf.setframerate(sample_rate)
+            wf.writeframes(pcm_bytes)
+        return wav_buffer.getvalue()
+    finally:
+        if decoder is not None:
+            try:
+                del decoder
+            except Exception:
+                pass
 
 
 def check_vad_update(before_config, new_config):
@@ -882,6 +454,12 @@ def check_asr_update(before_config, new_config):
     update_asr = False
     current_asr_module = before_config["selected_module"]["ASR"]
     new_asr_module = new_config["selected_module"]["ASR"]
+
+    # 如果模块名称不同，就需要更新
+    if current_asr_module != new_asr_module:
+        return True
+
+    # 如果模块名称相同，再比较类型
     current_asr_type = (
         current_asr_module
         if "type" not in before_config["ASR"][current_asr_module]
@@ -923,6 +501,17 @@ def filter_sensitive_info(config: dict) -> dict:
                 filtered[k] = _filter_dict(v)
             elif isinstance(v, list):
                 filtered[k] = [_filter_dict(i) if isinstance(i, dict) else i for i in v]
+            elif isinstance(v, str):
+                try:
+                    json_data = json.loads(v)
+                    if isinstance(json_data, dict):
+                        filtered[k] = json.dumps(
+                            _filter_dict(json_data), ensure_ascii=False
+                        )
+                    else:
+                        filtered[k] = v
+                except (json.JSONDecodeError, TypeError):
+                    filtered[k] = v
             else:
                 filtered[k] = v
         return filtered
@@ -982,3 +571,39 @@ def sanitize_tool_name(name: str) -> str:
     """Sanitize tool names for OpenAI compatibility."""
     # 支持中文、英文字母、数字、下划线和连字符
     return re.sub(r"[^a-zA-Z0-9_\-\u4e00-\u9fff]", "_", name)
+
+
+def validate_mcp_endpoint(mcp_endpoint: str) -> bool:
+    """
+    校验MCP接入点格式
+
+    Args:
+        mcp_endpoint: MCP接入点字符串
+
+    Returns:
+        bool: 是否有效
+    """
+    # 1. 检查是否以ws开头
+    if not mcp_endpoint.startswith("ws"):
+        return False
+
+    # 2. 检查是否包含key、call字样
+    if "key" in mcp_endpoint.lower() or "call" in mcp_endpoint.lower():
+        return False
+
+    # 3. 检查是否包含/mcp/字样
+    if "/mcp/" not in mcp_endpoint:
+        return False
+
+    return True
+
+def get_system_error_response(config: dict) -> str:
+    """获取系统错误时的回复
+
+    Args:
+        config: 配置字典
+
+    Returns:
+        str: 系统错误时的回复
+    """
+    return config.get("system_error_response", "主人，小智现在有点忙，我们稍后再试吧。")

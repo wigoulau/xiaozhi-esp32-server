@@ -4,6 +4,11 @@ import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
 from config.logger import setup_logging
 from plugins_func.register import register_function, ToolType, ActionResponse, Action
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.connection import ConnectionHandler
+
 
 TAG = __name__
 logger = setup_logging()
@@ -13,10 +18,9 @@ GET_NEWS_FROM_CHINANEWS_FUNCTION_DESC = {
     "function": {
         "name": "get_news_from_chinanews",
         "description": (
-            "获取最新新闻，随机选择一条新闻进行播报。"
+            "当用户要求查看或收听新闻时调用（如'来条新闻''今天有什么新闻'）。"
             "用户可以指定新闻类型，如社会新闻、科技新闻、国际新闻等。"
             "如果没有指定，默认播报社会新闻。"
-            "用户可以要求获取详细内容，此时会获取新闻的详细内容。"
         ),
         "parameters": {
             "type": "object",
@@ -145,7 +149,10 @@ def map_category(category_text):
     ToolType.SYSTEM_CTL,
 )
 def get_news_from_chinanews(
-    conn, category: str = None, detail: bool = False, lang: str = "zh_CN"
+    conn: "ConnectionHandler",
+    category: str = None,
+    detail: bool = False,
+    lang: str = "zh_CN",
 ):
     """获取新闻并随机选择一条进行播报，或获取上一条新闻的详细内容"""
     try:
@@ -195,7 +202,7 @@ def get_news_from_chinanews(
 
         # 否则，获取新闻列表并随机选择一条
         # 从配置中获取RSS URL
-        rss_config = conn.config["plugins"]["get_news_from_chinanews"]
+        rss_config = conn.config.get("plugins", {}).get("get_news_from_chinanews", {})
         default_rss_url = rss_config.get(
             "default_rss_url", "https://www.chinanews.com.cn/rss/society.xml"
         )

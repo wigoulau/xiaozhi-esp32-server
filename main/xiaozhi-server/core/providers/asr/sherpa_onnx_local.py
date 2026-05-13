@@ -40,6 +40,7 @@ class ASRProvider(ASRProviderBase):
         self.interface_type = InterfaceType.LOCAL
         self.model_dir = config.get("model_dir")
         self.output_dir = config.get("output_dir")
+        self.model_type = config.get("model_type", "sense_voice")  # 支持 paraformer
         self.delete_audio_file = delete_audio_file
 
         # 确保输出目录存在
@@ -73,16 +74,27 @@ class ASRProvider(ASRProviderBase):
             raise
 
         with CaptureOutput():
-            self.model = sherpa_onnx.OfflineRecognizer.from_sense_voice(
-                model=self.model_path,
-                tokens=self.tokens_path,
-                num_threads=2,
-                sample_rate=16000,
-                feature_dim=80,
-                decoding_method="greedy_search",
-                debug=False,
-                use_itn=True,
-            )
+            if self.model_type == "paraformer":
+                self.model = sherpa_onnx.OfflineRecognizer.from_paraformer(
+                    paraformer=self.model_path,
+                    tokens=self.tokens_path,
+                    num_threads=2,
+                    sample_rate=16000,
+                    feature_dim=80,
+                    decoding_method="greedy_search",
+                    debug=False,
+                )
+            else:  # sense_voice
+                self.model = sherpa_onnx.OfflineRecognizer.from_sense_voice(
+                    model=self.model_path,
+                    tokens=self.tokens_path,
+                    num_threads=2,
+                    sample_rate=16000,
+                    feature_dim=80,
+                    decoding_method="greedy_search",
+                    debug=False,
+                    use_itn=True,
+                )
 
     def read_wave(self, wave_filename: str) -> Tuple[np.ndarray, int]:
         """
@@ -108,24 +120,19 @@ class ASRProvider(ASRProviderBase):
             samples_float32 = samples_float32 / 32768
             return samples_float32, f.getframerate()
 
+    def requires_file(self) -> bool:
+        return True
+
     async def speech_to_text(
-        self, opus_data: List[bytes], session_id: str, audio_format="opus"
+        self, opus_data: List[bytes], session_id: str, audio_format="opus", artifacts=None
     ) -> Tuple[Optional[str], Optional[str]]:
         """语音转文本主处理逻辑"""
         file_path = None
         try:
-            # 保存音频文件
-            start_time = time.time()
-            if audio_format == "pcm":
-                pcm_data = opus_data
-            else:
-                pcm_data = self.decode_opus(opus_data)
-            file_path = self.save_audio_to_file(pcm_data, session_id)
-            logger.bind(tag=TAG).debug(
-                f"音频文件保存耗时: {time.time() - start_time:.3f}s | 路径: {file_path}"
-            )
+            if artifacts is None:
+                return "", None
+            file_path = artifacts.file_path
 
-            # 语音识别
             start_time = time.time()
             s = self.model.create_stream()
             samples, sample_rate = self.read_wave(file_path)
@@ -141,11 +148,3 @@ class ASRProvider(ASRProviderBase):
         except Exception as e:
             logger.bind(tag=TAG).error(f"语音识别失败: {e}", exc_info=True)
             return "", file_path
-        finally:
-            # 文件清理逻辑
-            if self.delete_audio_file and file_path and os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                    logger.bind(tag=TAG).debug(f"已删除临时音频文件: {file_path}")
-                except Exception as e:
-                    logger.bind(tag=TAG).error(f"文件删除失败: {file_path} | 错误: {e}")

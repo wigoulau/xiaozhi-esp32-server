@@ -1,55 +1,66 @@
 <template>
-  <el-dialog :title="title"
-    :visible.sync="visible"
-    width="520px"
-    class="param-dialog-wrapper"
-    :append-to-body="true"
-    :close-on-click-modal="false"
-    :key="dialogKey"
-    custom-class="custom-param-dialog"
-    :show-close="false"
-  >
+  <el-dialog :title="title" :visible.sync="visible" width="520px" class="param-dialog-wrapper" :append-to-body="true"
+    :close-on-click-modal="false" :key="dialogKey" custom-class="custom-param-dialog" :show-close="false">
     <div class="dialog-container">
       <div class="dialog-header">
         <h2 class="dialog-title">{{ title }}</h2>
         <button class="custom-close-btn" @click="cancel">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M13 1L1 13M1 1L13 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M13 1L1 13M1 1L13 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
           </svg>
         </button>
       </div>
 
-      <el-form :model="form" :rules="rules" ref="form" label-width="110px" label-position="left" class="param-form">
-        <el-form-item label="参数编码" prop="paramCode" class="form-item">
-          <el-input v-model="form.paramCode" placeholder="请输入参数编码" class="custom-input"></el-input>
+      <el-form :model="form" :rules="rules" ref="form" label-width="auto" label-position="left" class="param-form">
+        <el-form-item :label="$t('paramDialog.paramCode')" prop="paramCode" class="form-item">
+          <el-input v-model="form.paramCode" :placeholder="$t('paramDialog.paramCodePlaceholder')"
+            class="custom-input"></el-input>
         </el-form-item>
 
-        <el-form-item label="参数值" prop="paramValue" class="form-item">
-          <el-input v-model="form.paramValue" placeholder="请输入参数值" class="custom-input"></el-input>
-        </el-form-item>
-
-        <el-form-item label="值类型" prop="valueType" class="form-item">
-          <el-select v-model="form.valueType" placeholder="请选择值类型" class="custom-select">
-            <el-option v-for="item in valueTypeOptions" :key="item.value" :label="item.label" :value="item.value"/>
+        <el-form-item :label="$t('paramDialog.valueType')" prop="valueType" class="form-item">
+          <el-select
+            v-model="form.valueType"
+            :placeholder="$t('paramDialog.valueTypePlaceholder')"
+            class="custom-select"
+          >
+            <el-option
+              v-for="item in valueTypeOptions"
+              :key="item.value"
+              :label="$t(`paramDialog.${item.value}Type`)"
+              :value="item.value"
+            />
           </el-select>
         </el-form-item>
 
-        <el-form-item label="备注" prop="remark" class="form-item remark-item">
-          <el-input type="textarea" v-model="form.remark" placeholder="请输入备注" :rows="3" class="custom-textarea"></el-input>
+        <el-form-item :label="$t('paramDialog.paramValue')" prop="paramValue" class="form-item">
+          <el-input
+            v-if="form.valueType !== 'json' && form.valueType !== 'array'"
+            v-model="form.paramValue"
+            :placeholder="$t('paramDialog.paramValuePlaceholder')"
+            class="custom-input"
+          ></el-input>
+          <el-input
+            v-else
+            type="textarea"
+            v-model="form.paramValue"
+            :placeholder="$t('paramDialog.paramValuePlaceholder')"
+            :rows="6"
+            class="custom-textarea"
+          ></el-input>
+        </el-form-item>
+
+        <el-form-item :label="$t('paramDialog.remark')" prop="remark" class="form-item remark-item">
+          <el-input type="textarea" v-model="form.remark" :placeholder="$t('paramDialog.remarkPlaceholder')" :rows="3"
+            class="custom-textarea"></el-input>
         </el-form-item>
       </el-form>
 
       <div class="dialog-footer">
-        <el-button
-          type="primary"
-          @click="submit"
-          class="save-btn"
-          :loading="saving"
-          :disabled="saving">
-          保存
+        <el-button type="primary" @click="submit" class="save-btn" :loading="saving" :disabled="saving">
+          {{ $t('paramDialog.save') }}
         </el-button>
         <el-button @click="cancel" class="cancel-btn">
-          取消
+          {{ $t('paramDialog.cancel') }}
         </el-button>
       </div>
     </div>
@@ -83,21 +94,21 @@ export default {
       dialogKey: Date.now(),
       saving: false,
       valueTypeOptions: [
-        { value: 'string', label: '字符串(string)' },
-        { value: 'number', label: '数字(number)' },
-        { value: 'boolean', label: '布尔值(boolean)' },
-        { value: 'array', label: '数组(array)' },
-        { value: 'json', label: 'JSON对象(json)' }
+        { value: 'string' },
+        { value: 'number' },
+        { value: 'boolean' },
+        { value: 'array' },
+        { value: 'json' }
       ],
       rules: {
         paramCode: [
-          { required: true, message: "请输入参数编码", trigger: "blur" }
+          { required: true, message: this.$t('paramDialog.requiredParamCode'), trigger: "blur" }
         ],
         paramValue: [
-          { required: true, message: "请输入参数值", trigger: "blur" }
+          { required: true, message: this.$t('paramDialog.requiredParamValue'), trigger: "blur" }
         ],
         valueType: [
-          { required: true, message: "请选择值类型", trigger: "change" }
+          { required: true, message: this.$t('paramDialog.requiredValueType'), trigger: "change" }
         ]
       }
     };
@@ -106,29 +117,73 @@ export default {
     submit() {
       this.$refs.form.validate((valid) => {
         if (valid) {
-          this.saving = true; // 开始加载
-          this.$emit('submit', {
-            form: this.form,
-            done: () => {
-              this.saving = false; // 加载完成
-            }
-          });
+          const submitData = { ...this.form };
 
-          setTimeout(() => {
-            this.saving = false;
-          }, 3000);
+          // 如果是 array 类型，校验格式并转换
+          if (submitData.valueType === 'array' && submitData.paramValue) {
+            const lines = submitData.paramValue.split('\n').filter(line => line.trim());
+
+            // 检查除最后一行外的每行是否以分号结尾
+            for (let i = 0; i < lines.length - 1; i++) {
+              if (!lines[i].trim().endsWith(';')) {
+                this.$message.error('数组格式错误，需要使用英文分号结尾');
+                return;
+              }
+            }
+
+            const items = lines
+              .map(item => item.trim().replace(/;$/, ''))
+              .filter(item => item);
+            submitData.paramValue = items.join(';');
+          }
+          // 如果是 json 类型，压缩 JSON 格式后再提交
+          else if (submitData.valueType === 'json' && submitData.paramValue) {
+            try {
+              const parsed = JSON.parse(submitData.paramValue);
+              submitData.paramValue = JSON.stringify(parsed);
+            } catch (e) {
+              // 如果解析失败，保持原值
+            }
+          }
+
+          this.saving = true; // 开始加载
+          this.$emit('submit', submitData);
         }
       });
     },
     cancel() {
       this.saving = false; // 取消时重置状态
+      this.dialogKey = Date.now();
       this.$emit('cancel');
+    },
+
+    // 提供给父组件调用以重置saving状态
+    resetSaving() {
+      this.saving = false;
     }
   },
   watch: {
     visible(newVal) {
       if (newVal) {
-        this.dialogKey = Date.now();
+        if (this.form.paramValue) {
+          // 如果是 json 类型，格式化显示
+          if (this.form.valueType === 'json') {
+            try {
+              const parsed = JSON.parse(this.form.paramValue);
+              this.form.paramValue = JSON.stringify(parsed, null, 2);
+            } catch (e) {
+              // 如果解析失败，保持原值
+            }
+          }
+          // 如果是 array 类型，将分号分隔的字符串转换为每行一个项目
+          else if (this.form.valueType === 'array') {
+            const items = this.form.paramValue.split(';').filter(item => item.trim());
+            this.form.paramValue = items.join(';\n');
+          }
+        }
+      } else {
+        // 当对话框关闭时，重置saving状态
+        this.saving = false;
       }
     }
   }

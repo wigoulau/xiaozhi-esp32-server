@@ -8,6 +8,8 @@
     *   [3.1. `xiaozhi-server` (Core AI Engine - Python Implementation)](#31-xiaozhi-server-core-ai-engine---python-implementation)
     *   [3.2. `manager-api` (Management Backend - Java Spring Boot Implementation)](#32-manager-api-management-backend---java-spring-boot-implementation)
     *   [3.3. `manager-web` (Web Management Frontend - Vue.js Implementation)](#33-manager-web-web-management-frontend---vuejs-implementation)
+    *   [3.4. `manager-mobile` (Mobile Management Console - uni-app Implementation)](#34-manager-mobile-mobile-management-console---uniapp-implementation)
+    *   [3.5. `digital-human` (Digital Human Test Module - Python+Web Implementation)](#35-digital-human-digital-human-test-module---pythonweb-implementation)
 4.  [Data Flow and Interaction Mechanisms](#4-data-flow-and-interaction-mechanisms)
 5.  [Key Features Summary](#5-key-features-summary)
 6.  [Deployment and Configuration Overview](#6-deployment-and-configuration-overview)
@@ -59,6 +61,21 @@ The `xiaozhi-esp32-server` system adopts a **distributed, multi-component collab
     *   (Potential functionality) Monitoring system operation status, viewing logs, troubleshooting, etc.
     *   Comprehensive interaction with all backend management functions provided by `manager-api`.
 
+5.  **`manager-mobile` (Mobile Management Console - uni-app Implementation):**
+    This is a cross-platform mobile management application based on uni-app v3 + Vue 3 + Vite, supporting App (Android & iOS) and WeChat Mini Program. Its main capabilities include:
+    *   Providing a convenient management interface on mobile devices, similar in functionality to manager-web but optimized for mobile platforms.
+    *   Supporting core functions such as user login, device management, and AI service configuration.
+    *   Cross-platform adaptation, allowing a single codebase to run on iOS, Android, and WeChat Mini Programs.
+    *   Integrating with `manager-api` through alova + `@alova/adapter-uniapp`.
+    *   Using pinia for state management to ensure data consistency.
+
+6.  **`digital-human` (Digital Human Test Module - Python+Web Implementation):**
+    This is an independent digital human test module that provides a local test page, frontend interaction resources, a wake word runtime, and an event bridge for end-to-end debugging of the digital human interaction flow. Its main capabilities include:
+    *   Providing a browser-based digital human test page for validating audio playback, audio reception, and interaction flow.
+    *   Integrating a local wake word runtime with keyword detection based on Sherpa-ONNX.
+    *   Bridging page state and the local runtime through an event bridge to simplify wake word debugging.
+    *   Existing as a standalone module alongside `xiaozhi-server`, `manager-web`, and `manager-api`, making independent development and deployment easier.
+
 **High-Level Interaction Flow Overview:**
 
 *   **Voice Interaction Main Line:** After the **ESP32 device** captures user voice, it transmits audio data in real-time to **`xiaozhi-server`** through **WebSocket**. After `xiaozhi-server` completes a series of AI processing (VAD, ASR, LLM interaction, TTS), it sends the synthesized voice response back to the ESP32 device for playback through WebSocket. All real-time interactions directly related to voice are completed in this link.
@@ -72,6 +89,8 @@ xiaozhi-esp32-server
   ├─ xiaozhi-server Port 8000 Python development Responsible for ESP32 communication
   ├─ manager-web Port 8001 Node.js+Vue development Responsible for providing web interface for console
   ├─ manager-api Port 8002 Java development Responsible for providing console API
+  ├─ manager-mobile Cross-platform mobile application uni-app+Vue3 development Responsible for providing mobile console management
+  └─ digital-human Digital human test module Python+Web implementation Responsible for local test page, wake word runtime, and event bridge
 ```
 
 ---
@@ -190,7 +209,110 @@ The `manager-web` is a Single Page Application (SPA) providing the administrativ
     4.  **State Management (`src/store/index.js`):** Vuex manages global state (user info, device lists, etc.) via state, getters, mutations, and actions (often involving API calls).
     5.  **API Communication (`src/apis/`):** Modularized API service files make asynchronous calls to `manager-api`.
     6.  **Build Process & PWA Features:** Vue CLI (Webpack) bundles assets. Workbox enables PWA features like caching.
-    7.  **Environment Configuration (`.env` files):** Manages settings like the `manager-api` base URL for different environments.
+    7.  **Environment Configuration (`.env` files):**
+        *   The `.env` (and `.env.development`, `.env.production`, etc.) files in the project root directory are used to define environment variables. These variables (such as `VUE_APP_API_BASE_URL` to specify the base URL of `manager-api`) can be accessed in the application code through `process.env.VUE_APP_XXX`, allowing configuration of different parameters for different build environments (development, testing, production).
+
+`manager-web` constructs a powerful, maintainable, and user-friendly management interface through the comprehensive application of these technologies, providing solid frontend support for the configuration and monitoring of the `xiaozhi-esp32-server` system.
+
+### 3.4. `manager-mobile` (Mobile Management Console - uni-app Implementation)
+
+The `manager-mobile` component is a cross-platform mobile management application based on uni-app v3 + Vue 3 + Vite, supporting App (Android & iOS) and WeChat Mini Program. It provides system administrators with a mobile management interface, making management operations more convenient.
+
+*   **Core Objectives:**
+    *   Provide a convenient management interface on mobile devices, similar in functionality to manager-web but optimized for mobile platforms.
+    *   Support core functions such as user login, device management, and AI service configuration.
+    *   Cross-platform adaptation, allowing a single codebase to run on iOS, Android, and WeChat Mini Programs.
+    *   Provide mobile users with a smooth and efficient management experience.
+
+*   **Platform Compatibility:**
+
+| H5 | iOS | Android | WeChat Mini Program |
+| -- | --- | ------- | ------------------ | 
+| ×  | √   | √       | √                  | 
+
+*   **Core Technologies:**
+    *   **uni-app v3:** A framework for developing all frontend applications using Vue.js, supporting iOS, Android, H5, and various mini-programs.
+    *   **Vue 3:** A progressive framework for building user interfaces, providing better performance and new features.
+    *   **Vite:** The next generation frontend development and build tool, offering an extremely fast development experience.
+    *   **pnpm:** A fast, disk space-efficient package manager.
+    *   **alova:** A lightweight, flexible request strategy library, paired with @alova/adapter-uniapp to adapt to the uni-app environment.
+    *   **pinia:** State management library for Vue, replacing Vuex, providing a simpler API and better TypeScript support.
+    *   **UnoCSS:** A high-performance and extremely flexible instant atomic CSS engine.
+    *   **TypeScript:** Provides a type-safe development experience.
+
+*   **Key Implementation Details:**
+
+    1.  **Cross-Platform Architecture:**
+        *   Based on the uni-app framework, achieving the goal of "write once, run anywhere," significantly reducing development and maintenance costs.
+        *   Handling platform-specific code through conditional compilation to address the characteristics and limitations of different platforms.
+
+    2.  **Project Structure:**
+        *   **`src/App.vue`:** The root component of the application, defining global styles and configurations.
+        *   **`src/main.ts`:** The entry file of the application, responsible for initializing the Vue instance, registering plugins, and setting up route interceptors.
+        *   **`src/pages/`:** Stores application page components, such as login pages, device management pages, etc.
+        *   **`src/layouts/`:** Defines application layout components, such as default layouts, layouts with tabbar, etc.
+        *   **`src/api/`:** Encapsulates communication logic with backend APIs.
+        *   **`src/store/`:** Uses pinia for state management.
+        *   **`src/components/`:** Stores reusable components.
+        *   **`src/utils/`:** Provides common utility functions.
+
+    3.  **Network Requests:**
+        *   Implements network requests based on alova + @alova/adapter-uniapp, unified handling of request headers, authentication, errors, etc.
+        *   Request addresses and environment configurations are managed through .env files, supporting switching between different environments.
+
+    4.  **Routing and Authentication:**
+        *   Uses uni-app's routing system, combined with route interceptors to implement page login verification and permission control.
+        *   When unlogged users access pages requiring authentication, they are redirected to the login page.
+
+    5.  **State Management:**
+        *   Uses pinia to manage application state, such as user information, device lists, etc.
+        *   Implements persistent storage of state through the pinia-plugin-persistedstate plugin.
+
+    6.  **Build and Release:**
+        *   Supports multiple build commands, such as building WeChat Mini Programs, Android, and iOS Apps.
+        *   Uses HBuilderX for cloud packaging of Apps, simplifying the packaging process.
+
+`manager-mobile` provides users with a fully functional, smooth mobile management tool through the application of these technologies, allowing administrators to perform system management and configuration anytime, anywhere.
+
+### 3.5. `digital-human` (Digital Human Test Module - Python+Web Implementation)
+
+The `digital-human` component is an independent digital human test module responsible for providing a local test page, page resources, a wake word runtime, and an event bridge. It is primarily used to debug the complete digital human interaction flow and to validate frontend interaction, audio capability, and local wake word behavior.
+
+*   **Core Objectives:**
+    *   Provide an independent local test page for validating digital human interaction effects.
+    *   Provide a local wake word runtime for keyword detection and event reporting.
+    *   Provide an event bridge between the frontend page and the local runtime to connect the test flow.
+    *   Exist as a standalone module for easier independent development, debugging, and deployment.
+
+*   **Core Technologies:**
+    *   **Python 3:** Used for the local test runtime, service startup, wake word lifecycle management, and event bridge coordination.
+    *   **Native HTML/CSS/JavaScript:** Used to build the digital human test page and interaction logic.
+    *   **Sherpa-ONNX:** Used for local wake word keyword detection.
+    *   **ThreadingHTTPServer / WebSocket bridge:** Used to serve the local page, health check endpoint, and event communication.
+
+*   **Key Implementation Aspects:**
+
+    1.  **Module Entry and Page Resources:**
+        *   `start.py` is the module entry point responsible for starting the local test runtime.
+        *   `index.html` is the entry page for digital human testing.
+        *   The `js/`, `css/`, `images/`, and `resources/` directories provide frontend scripts, styles, and static resources.
+
+    2.  **Local Test Runtime:**
+        *   The `wakeword_runtime/` directory contains the local wake word runtime implementation.
+        *   The runtime is responsible for configuration loading, logging initialization, audio capture, keyword detection, and lifecycle management.
+        *   The module exposes a local page URL, event bridge URL, and health check endpoint through a local HTTP service.
+
+    3.  **Wake Word Detection Flow:**
+        *   Uses Sherpa-ONNX keyword detection models to support local wake word triggering.
+        *   Model files and keyword configurations are stored in `wakeword_runtime/models/` and related configuration files.
+        *   The page can observe runtime state and trigger results through the event bridge.
+
+    4.  **Debugging and Integration Positioning:**
+        *   After startup, developers can open the local page in a browser to validate playback, reception, and interaction logic.
+        *   The event bridge synchronizes wake word state to the page, which helps with local debugging.
+        *   Detailed model download, runtime configuration, and usage instructions are documented in `docs/digital-human-wakeword.md`.
+
+The `digital-human` module allows digital human related capabilities to be validated independently from the main service, reducing the complexity of page debugging, wake word integration, and local environment setup.
 
 ---
 

@@ -3,6 +3,10 @@ from bs4 import BeautifulSoup
 from config.logger import setup_logging
 from plugins_func.register import register_function, ToolType, ActionResponse, Action
 from core.utils.util import get_ip_info
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.connection import ConnectionHandler
 
 TAG = __name__
 logger = setup_logging()
@@ -14,7 +18,7 @@ GET_WEATHER_FUNCTION_DESC = {
         "description": (
             "获取某个地点的天气，用户应提供一个位置，比如用户说杭州天气，参数为：杭州。"
             "如果用户说的是省份，默认用省会城市。如果用户说的不是省份或城市而是一个地名，默认用该地所在省份的省会城市。"
-            "如果用户没有指明地点，说“天气怎么样”，”今天天气如何“，location参数为空"
+            "重要：本地未来7天天气已在上下文中提供，用户未指明其他城市时绝对不要调用此工具。"
         ),
         "parameters": {
             "type": "object",
@@ -110,6 +114,11 @@ WEATHER_CODE_MAP = {
 def fetch_city_info(location, api_key, api_host):
     url = f"https://{api_host}/geo/v2/city/lookup?key={api_key}&location={location}&lang=zh"
     response = requests.get(url, headers=HEADERS).json()
+    if response.get("error") is not None:
+        logger.bind(tag=TAG).error(
+            f"获取天气失败，原因：{response.get('error', {}).get('detail')}"
+        )
+        return None
     return response.get("location", [])[0] if response.get("location") else None
 
 
@@ -150,21 +159,42 @@ def parse_weather_info(soup):
 
 
 @register_function("get_weather", GET_WEATHER_FUNCTION_DESC, ToolType.SYSTEM_CTL)
-def get_weather(conn, location: str = None, lang: str = "zh_CN"):
-    api_host = conn.config["plugins"]["get_weather"].get("api_host", "mj7p3y7naa.re.qweatherapi.com")
-    api_key = conn.config["plugins"]["get_weather"].get("api_key", "a861d0d5e7bf4ee1a83d9a9e4f96d4da")
-    default_location = conn.config["plugins"]["get_weather"]["default_location"]
+def get_weather(conn: "ConnectionHandler", location: str = None, lang: str = "zh_CN"):
+    from core.utils.cache.manager import cache_manager, CacheType
+
+    weather_config = conn.config.get("plugins", {}).get("get_weather", {})
+    api_host = weather_config.get("api_host", "mj7p3y7naa.re.qweatherapi.com")
+    api_key = weather_config.get("api_key", "a861d0d5e7bf4ee1a83d9a9e4f96d4da")
+    default_location = weather_config.get("default_location", "广州")
     client_ip = conn.client_ip
+
     # 优先使用用户提供的location参数
     if not location:
         # 通过客户端IP解析城市
         if client_ip:
-            # 动态解析IP对应的城市信息
-            ip_info = get_ip_info(client_ip, logger)
-            location = ip_info.get("city") if ip_info and "city" in ip_info else None
+            # 先从缓存获取IP对应的城市信息
+            cached_ip_info = cache_manager.get(CacheType.IP_INFO, client_ip)
+            if cached_ip_info:
+                location = cached_ip_info.get("city")
+            else:
+                # 缓存未命中，调用API获取
+                ip_info = get_ip_info(client_ip, logger)
+                if ip_info:
+                    cache_manager.set(CacheType.IP_INFO, client_ip, ip_info)
+                    location = ip_info.get("city")
+
+            if not location:
+                location = default_location
         else:
-            # 若IP解析失败或无IP，使用默认位置
+            # 若无IP，使用默认位置
             location = default_location
+    # 尝试从缓存获取完整天气报告
+    weather_cache_key = f"full_weather_{location}_{lang}"
+    cached_weather_report = cache_manager.get(CacheType.WEATHER, weather_cache_key)
+    if cached_weather_report:
+        return ActionResponse(Action.REQLLM, cached_weather_report, None)
+
+    # 缓存未命中，获取实时天气数据
     city_info = fetch_city_info(location, api_key, api_host)
     if not city_info:
         return ActionResponse(
@@ -191,5 +221,8 @@ def get_weather(conn, location: str = None, lang: str = "zh_CN"):
 
     # 提示语
     weather_report += "\n（如需某一天的具体天气，请告诉我日期）"
+
+    # 缓存完整的天气报告
+    cache_manager.set(CacheType.WEATHER, weather_cache_key, weather_report)
 
     return ActionResponse(Action.REQLLM, weather_report, None)

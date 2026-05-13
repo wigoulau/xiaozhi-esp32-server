@@ -1,6 +1,9 @@
 """服务端插件工具执行器"""
 
-from typing import Dict, Any
+from typing import Dict, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.connection import ConnectionHandler
 from ..base import ToolType, ToolDefinition, ToolExecutor
 from plugins_func.register import all_function_registry, Action, ActionResponse
 
@@ -8,12 +11,12 @@ from plugins_func.register import all_function_registry, Action, ActionResponse
 class ServerPluginExecutor(ToolExecutor):
     """服务端插件工具执行器"""
 
-    def __init__(self, conn):
+    def __init__(self, conn: "ConnectionHandler"):
         self.conn = conn
         self.config = conn.config
 
     async def execute(
-        self, conn, tool_name: str, arguments: Dict[str, Any]
+        self, conn: "ConnectionHandler", tool_name: str, arguments: Dict[str, Any]
     ) -> ActionResponse:
         """执行服务端插件工具"""
         func_item = all_function_registry.get(tool_name)
@@ -51,13 +54,13 @@ class ServerPluginExecutor(ToolExecutor):
         tools = {}
 
         # 获取必要的函数
-        necessary_functions = ["handle_exit_intent", "get_time", "get_lunar"]
+        necessary_functions = ["handle_exit_intent", "get_lunar"]
 
         # 获取配置中的函数
         config_functions = self.config["Intent"][
             self.config["selected_module"]["Intent"]
         ].get("functions", [])
-        
+
         # 转换为列表
         if not isinstance(config_functions, list):
             try:
@@ -71,6 +74,19 @@ class ServerPluginExecutor(ToolExecutor):
         for func_name in all_required_functions:
             func_item = all_function_registry.get(func_name)
             if func_item:
+                # 从函数注册中获取描述
+                fun_description = (
+                    self.config.get("plugins", {})
+                    .get(func_name, {})
+                    .get("description", "")
+                )
+                if fun_description is not None and len(fun_description) > 0:
+                    if "function" in func_item.description and isinstance(
+                        func_item.description["function"], dict
+                    ):
+                        func_item.description["function"][
+                            "description"
+                        ] = fun_description
                 tools[func_name] = ToolDefinition(
                     name=func_name,
                     description=func_item.description,

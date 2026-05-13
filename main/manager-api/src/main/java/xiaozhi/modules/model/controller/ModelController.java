@@ -21,6 +21,7 @@ import xiaozhi.common.utils.ConvertUtils;
 import xiaozhi.common.utils.Result;
 import xiaozhi.modules.agent.service.AgentTemplateService;
 import xiaozhi.modules.config.service.ConfigService;
+import xiaozhi.modules.model.dto.LlmModelBasicInfoDTO;
 import xiaozhi.modules.model.dto.ModelBasicInfoDTO;
 import xiaozhi.modules.model.dto.ModelConfigBodyDTO;
 import xiaozhi.modules.model.dto.ModelConfigDTO;
@@ -50,6 +51,14 @@ public class ModelController {
             @RequestParam(required = false) String modelName) {
         List<ModelBasicInfoDTO> modelList = modelConfigService.getModelCodeList(modelType, modelName);
         return new Result<List<ModelBasicInfoDTO>>().ok(modelList);
+    }
+
+    @GetMapping("/llm/names")
+    @Operation(summary = "获取LLM模型信息")
+    @RequiresPermissions("sys:role:normal")
+    public Result<List<LlmModelBasicInfoDTO>> getLlmModelCodeList(@RequestParam(required = false) String modelName) {
+        List<LlmModelBasicInfoDTO> llmModelCodeList = modelConfigService.getLlmModelCodeList(modelName);
+        return new Result<List<LlmModelBasicInfoDTO>>().ok(llmModelCodeList);
     }
 
     @GetMapping("/{modelType}/provideTypes")
@@ -120,6 +129,12 @@ public class ModelController {
         if (entity == null) {
             return new Result<Void>().error("模型配置不存在");
         }
+        // 不能关闭默认模型
+        if (status == 0 && entity.getIsDefault() > 0) {
+            return new Result<Void>().error("默认模型配置不允许关闭");
+        }
+        // 不更新ConfigJson字段
+        entity.setConfigJson(null);
         entity.setIsEnabled(status);
         modelConfigService.updateById(entity);
         return new Result<Void>();
@@ -137,6 +152,8 @@ public class ModelController {
         modelConfigService.setDefaultModel(entity.getModelType(), 0);
         entity.setIsEnabled(1);
         entity.setIsDefault(1);
+        // 不更新ConfigJson字段
+        entity.setConfigJson(null);
         modelConfigService.updateById(entity);
 
         // 更新模板表中对应的模型ID

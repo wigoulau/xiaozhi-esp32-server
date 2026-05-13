@@ -1,22 +1,25 @@
 import uuid
+import re
 from typing import List, Dict
 from datetime import datetime
 
 
 class Message:
     def __init__(
-        self,
-        role: str,
-        content: str = None,
-        uniq_id: str = None,
-        tool_calls=None,
-        tool_call_id=None,
+            self,
+            role: str,
+            content: str = None,
+            uniq_id: str = None,
+            tool_calls=None,
+            tool_call_id=None,
+            is_temporary=False,
     ):
         self.uniq_id = uniq_id if uniq_id is not None else str(uuid.uuid4())
         self.role = role
         self.content = content
         self.tool_calls = tool_calls
         self.tool_call_id = tool_call_id
+        self.is_temporary = is_temporary  # 标记临时消息（如工具调用提醒）
 
 
 class Dialogue:
@@ -45,10 +48,9 @@ class Dialogue:
             dialogue.append({"role": m.role, "content": m.content})
 
     def get_llm_dialogue(self) -> List[Dict[str, str]]:
-        dialogue = []
-        for m in self.dialogue:
-            self.getMessages(m, dialogue)
-        return dialogue
+        # 直接调用get_llm_dialogue_with_memory，传入None作为memory_str
+        # 这样确保说话人功能在所有调用路径下都生效
+        return self.get_llm_dialogue_with_memory(None, None)
 
     def update_system_message(self, new_content: str):
         """更新或添加系统消息"""
@@ -59,13 +61,40 @@ class Dialogue:
         else:
             self.put(Message(role="system", content=new_content))
 
-    def get_llm_dialogue_with_memory(
-        self, memory_str: str = None
-    ) -> List[Dict[str, str]]:
-        if memory_str is None or len(memory_str) == 0:
-            return self.get_llm_dialogue()
+    def _ensure_tool_calls_complete(self, messages: List[Message]) -> List[Message]:
+        """
+        确保所有 tool_calls 都有对应的 tool 响应
+        修复被打断导致的悬空 tool_calls，防止大模型 API 报 400 错误
+        """
+        pending_tool_calls = set()
+        result = []
 
-        # 构建带记忆的对话
+        for msg in messages:
+            result.append(msg)
+
+            if msg.role == "assistant" and msg.tool_calls:
+                for tc in msg.tool_calls:
+                    tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                    if tc_id:
+                        pending_tool_calls.add(tc_id)
+
+            elif msg.role == "tool" and msg.tool_call_id:
+                pending_tool_calls.discard(msg.tool_call_id)
+
+        for missing_id in pending_tool_calls:
+            dummy_tool_msg = Message(
+                role="tool",
+                content='{"status": "interrupted", "message": "动作已取消/被打断"}',
+                tool_call_id=missing_id
+            )
+            result.append(dummy_tool_msg)
+
+        return result
+
+    def get_llm_dialogue_with_memory(
+            self, memory_str: str = None, voiceprint_config: dict = None
+    ) -> List[Dict[str, str]]:
+        # 构建对话
         dialogue = []
 
         # 添加系统提示和记忆
@@ -74,15 +103,71 @@ class Dialogue:
         )
 
         if system_message:
-            enhanced_system_prompt = (
-                f"{system_message.content}\n\n"
-                f"以下是用户的历史记忆：\n```\n{memory_str}\n```"
-            )
-            dialogue.append({"role": "system", "content": enhanced_system_prompt})
+            # 以 <context> 为分界点，拆分静态 system prompt 和动态上下文
+            # 静态部分（规则、身份等）保持不变，可命中前缀缓存
+            # 动态部分（时间、天气、记忆等）作为第二条 system 消息，保持 system 权威性
+            full_prompt = system_message.content
+            context_match = re.search(r"<context>", full_prompt)
+            if context_match:
+                static_part = full_prompt[:context_match.start()]
+                dynamic_part = full_prompt[context_match.start():]
+            else:
+                static_part = full_prompt
+                dynamic_part = ""
 
-        # 添加用户和助手的对话
-        for m in self.dialogue:
-            if m.role != "system":  # 跳过原始的系统消息
-                self.getMessages(m, dialogue)
+            # 第一段：静态 system prompt（前缀缓存可命中）
+            dialogue.append({"role": "system", "content": static_part})
+
+        # 第二段：few-shot 示例（会话内不变，也是缓存前缀的一部分）
+        non_system_messages = [m for m in self.dialogue if m.role != "system"]
+        fewshot_messages = [m for m in non_system_messages if m.is_temporary]
+        complete_fewshot = self._ensure_tool_calls_complete(fewshot_messages)
+        for m in complete_fewshot:
+            self.getMessages(m, dialogue)
+
+        # 第三段：动态上下文 system prompt（时间、记忆、说话人等）
+        # 保持 system 角色以确保模型权威性，不降级为 user
+        if system_message and dynamic_part:
+            # 替换时间占位符
+            dynamic_part = dynamic_part.replace(
+                "{{current_time}}", datetime.now().strftime("%H:%M")
+            )
+
+            # 填充记忆
+            if memory_str is not None:
+                dynamic_part = re.sub(
+                    r"<memory>.*?</memory>",
+                    f"<memory>\n{memory_str}\n</memory>",
+                    dynamic_part,
+                    flags=re.DOTALL,
+                )
+
+            # 追加说话人信息
+            try:
+                speakers = voiceprint_config.get("speakers", [])
+                if speakers:
+                    dynamic_part += "\n<speakers_info>"
+                    for speaker_str in speakers:
+                        try:
+                            parts = speaker_str.split(",", 2)
+                            if len(parts) >= 2:
+                                name = parts[1].strip()
+                                description = (
+                                    parts[2].strip() if len(parts) >= 3 else ""
+                                )
+                                dynamic_part += f"\n- {name}：{description}"
+                        except:
+                            pass
+                    dynamic_part += "\n</speakers_info>"
+            except:
+                pass
+
+            dialogue.append({"role": "system", "content": dynamic_part})
+
+        # 第四段：实际对话历史（不含 few-shot）
+        actual_messages = [m for m in non_system_messages if not m.is_temporary]
+        complete_actual = self._ensure_tool_calls_complete(actual_messages)
+        for m in complete_actual:
+            self.getMessages(m, dialogue)
 
         return dialogue

@@ -91,7 +91,6 @@ class TTSProvider(TTSProviderBase):
         self.reference_text = parse_string_to_list(
              config.get('ref_text')if config.get('ref_text') else config.get("reference_text")
         )
-        self.format = config.get("response_format", "wav")
         self.audio_file_type = config.get("response_format", "wav")
         self.api_key = config.get("api_key", "YOUR_API_KEY")
         model_key_msg = check_model_key("FishSpeech TTS", self.api_key)
@@ -143,12 +142,12 @@ class TTSProvider(TTSProviderBase):
         data = {
             "text": text,
             "references": [
-                ServeReferenceAudio(audio=audio if audio else b"", text=text)
-                for text, audio in zip(ref_texts, byte_audios)
+                ServeReferenceAudio(audio=audio if audio else b"", text=ref_text)
+                for ref_text, audio in zip(ref_texts, byte_audios)
             ],
             "reference_id": self.reference_id,
             "normalize": self.normalize,
-            "format": self.format,
+            "format": self.audio_file_type,
             "max_new_tokens": self.max_new_tokens,
             "chunk_length": self.chunk_length,
             "top_p": self.top_p,

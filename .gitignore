@@ -3,6 +3,9 @@ __pycache__/
 .idea/
 *.py[cod]
 *$py.class
+.vscode
+.claude
+AGENTS.md
 
 # C extensions
 *.so
@@ -146,6 +149,7 @@ tmp
 .history
 .DS_Store
 main/xiaozhi-server/data
+main/xiaozhi-server/.claude
 
 main/manager-web/node_modules
 .config.yaml
@@ -174,3 +178,17 @@ main/xiaozhi-server/mysql
 uploadfile
 *.json
 .vscode
+.cursor
+ 
+!package.json
+!**/package.json
+
+# Do not ignore env and json files inside manager-mobile
+!main/manager-mobile/**/env/
+!main/manager-mobile/**/.env*
+!main/manager-mobile/**/*.json
+!main/xiaozhi-server/**/*.json
+!main/digital-human/**/*.json
+main/digital-human/wakeword_runtime/models
+main/digital-human/wakeword_runtime/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01
+sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01.tar.bz2
